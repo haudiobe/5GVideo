@@ -107,7 +107,8 @@ class VTM(ReferenceEncoder):
     def encode_variant(v:VariantCfg, recon=True, **opts):
         encoder = get_env("VTM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts))
+        opl = v.anchor.working_dir / f'{v.basename}.opl'
+        run_process(logfile, encoder, *reference_encoder_args(v, recon), '-opl', opl, *_to_cli_args(opts))
         return logfile
 
     @staticmethod
