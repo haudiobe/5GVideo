@@ -50,16 +50,16 @@ def compute_anchor_metrics(anchor:AnchorCfg):
     to_csv(f'{anchor.working_dir / anchor.basename}.csv', keys, [m.data for m in data])
     return data
 
-def encode_anchor(anchor:AnchorCfg, baseline=True, save_reconstructed=True):
+def encode_anchor(anchor:AnchorCfg, baseline=True, recon=True):
     enc = get_encoder(anchor.encoder_id)
     if enc == None:
         raise Exception(f'unknown encoder: {anchor.encoder_id}')
     if baseline == True:
         var = VariantCfg(anchor, 'default', {})
-        enc.encode_variant(var, save_reconstructed=True)
+        enc.encode_variant(var, recon=recon)
         return
     for var in anchor.variants:
-        enc.encode_variant(var, save_reconstructed=True)
+        enc.encode_variant(var, recon=recon)
 
 
 def decode_anchor(anchor:AnchorCfg, baseline=True):
@@ -119,7 +119,7 @@ def main():
     # @TODO: anchor.working_dir = "/path/to/custom/dir"
 
     if encode:
-        encode_anchor(anchor, baseline, save_reconstructed=decode)
+        encode_anchor(anchor, baseline, recon=decode)
 
     if decode and not encode:
         decode_anchor(anchor, baseline)

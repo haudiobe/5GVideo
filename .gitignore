@@ -1,3 +1,5 @@
 anchors/hm/
 anchors/jm/
 anchors/vtm/
+.venv/
+__pycache__/
