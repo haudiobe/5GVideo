@@ -65,7 +65,9 @@ class VideoSequence(VideoInfo):
     @staticmethod
     def with_sidecar_metadata(raw_sequence:Path):
         sidecar = raw_sequence.parent / f'{raw_sequence.stem}.json'
-        with open(sidecar, 'r') as reader:
-            meta = json.load(reader)
-            return VideoSequence(raw_sequence, **meta)
-
+        try:
+            with open(sidecar, 'r') as reader:
+                meta = json.load(reader)
+                return VideoSequence(raw_sequence, **meta)
+        except FileNotFoundError:
+            raise Exception(f'missing sidecar metadata for {raw_sequence}')

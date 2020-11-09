@@ -51,6 +51,12 @@ def _to_cli_args(opts:dict):
             args += [k, str(v)]
     return args
 
+def get_env(var:str):
+    v = os.getenv(var)
+    if v == None:
+        raise Exception(f'environment variable not set {var}')
+    return v
+
 def reference_encoder_args(variant:VariantCfg, recon=True):
     """
     HM & VTM softwares share a common set of options
@@ -77,14 +83,14 @@ class HM(ReferenceEncoder):
 
     @staticmethod
     def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = os.getenv("HM_ENCODER", "deps/HM/bin/TAppEncoderStatic")
+        encoder = get_env("HM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
         run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts))
         return logfile
 
     @staticmethod
     def decode_variant(v:VariantCfg, **opts):
-        decoder = os.getenv("HM_DECODER", "deps/HM/bin/TAppDecoderStatic")
+        decoder = get_env("HM_DECODER")
         args = _to_cli_args({ 
             "-b": v.bitstream,
             "-o": v.reconstructed,
@@ -99,14 +105,14 @@ class VTM(ReferenceEncoder):
 
     @staticmethod
     def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = os.getenv("VTM_ENCODER", "deps/VTM/bin/EncoderAppStatic")
+        encoder = get_env("VTM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
         run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts))
         return logfile
 
     @staticmethod
     def decode_variant(v:VariantCfg, **opts):
-        decoder = os.getenv("VTM_DECODER", "deps/VTM/bin/DecoderAppStatic")
+        decoder = get_env("VTM_DECODER")
         args = _to_cli_args({ 
             "-b": v.bitstream,
             "-o": v.reconstructed,
@@ -124,7 +130,7 @@ class JM(ReferenceEncoder):
 
     @staticmethod
     def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = os.getenv("JM_ENCODER", "deps/JM/bin/lencod_static")
+        encoder = get_env("JM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
         """
         # 3.1 Encoder Syntax
@@ -169,7 +175,7 @@ class JM(ReferenceEncoder):
 
     @staticmethod
     def decode_variant(v:VariantCfg, **opts):
-        decoder = os.getenv("JM_DECODER", "deps/JM/bin/ldecod_static")
+        decoder = get_env("JM_DECODER")
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
         """
         ldecod [-s] [-h] [-d] [defdec.cfg]
