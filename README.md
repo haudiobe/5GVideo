@@ -5,14 +5,48 @@
 ./cmd.py ./anchor.json [encode] [decode] [metrics]
 ```
 
-> `./cmd.py ./anchor.json` 
+given an anchor definition, the tool performs encoding, reconstruction and runs additional metrics computation in one step for all variants.
 
-performs encoding, reconstruction and runs metrics computation in one step.
-
-The tool assumes you have reference encoders compiled, with environment variables pointing to the executables.
+> the tool assumes you have reference encoders compiled, with environment variables pointing to the executables, see below.
 
 
-# Supported encoders 
+## encode
+
+```
+./cmd.py ./anchor.json encode decode
+```
+
+runs the **reference encoder** to generate both bitstream, and reconstructed sequence for all the anchors, with the reconstructed chroma format as specified in the encoder config.
+
+```
+./cmd.py ./anchor.json encode
+```
+
+runs the reference encoder to generate bitstream only.
+
+
+## decode
+
+```
+./cmd.py ./anchor.json decode
+```
+
+runs the **reference decoder** to reconstruct the bitstream, with the output chroma format matching the bitstream.
+
+
+## metrics 
+
+```
+./cmd.py ./anchor.json metrics
+```
+
+generates some metrics for each variant defined in the anchor
+
+> the `metrics` options currently requires third party tools, see below.
+
+
+
+# Reference encoders 
 
 the following environment variables are needed depending on the encoder/decoder you want to use:
 ```
@@ -38,29 +72,34 @@ implement the ReferenceEncoder interface (encoder_id, encode_variant, decode_var
 ```
 {
     "description": "human readable description, use case, settings overview ...",
-    "test_sequence": "path/to/references/sample.yuv",
+    "test_sequence": "path/to/reference/sample.yuv",
     "encoder": "HM",
     "encoder_cfg": "path/to/anchor/encoder_cfg.cfg",
     "variants": {
         "variant_id0": {
             "OptionKey": "OptionValue",
-            "OptionKey2": "{WORKING_DIR}/sub.cfg"
+            "OptionKey2": "{ANCHOR_DIR}/sub.cfg"
         },
         "variant_id1": {
             "OptionKey": "OptionValue"
+            "OptionKey2": "{ANCHOR_DIR}/sub.cfg"
         },
         [...]
     }
 }
 ```
 
-this configuration generates the following :
+notes: 
+- if `test_sequence` or `encoder_cfg` is a relative path, it is interpreted as **relative the current shell working directory**
+- when used, `{ANCHOR_DIR}` resolves to the anchor's encoder config directory, **path/to/anchor**
+
+the above configuration would generate the following :
 ```
-# coded bitstream
-path/to/anchor/encoder_cfg.variant_id0.bin
+# variant bitstream
+path/to/anchor/encoder_cfg.variant_id0.bit
 path/to/anchor/encoder_cfg.variant_id0.enc.log
 
-# reconstructed
+# reconstructed variant
 path/to/anchor/encoder_cfg.variant_id0.yuv
 
 # variant metrics
@@ -68,26 +107,25 @@ path/to/anchor/encoder_cfg.variant_id0.csv
 
 [...]
 
-path/to/anchor/encoder_cfg.variant_id1.bin
+path/to/anchor/encoder_cfg.variant_id1.bit
 path/to/anchor/encoder_cfg.variant_id1.rec
 path/to/anchor/encoder_cfg.variant_id1.enc.log
 path/to/anchor/encoder_cfg.variant_id1.csv
 
 [...]
 
-# anchor metrics
+# averaged metrics, one variant per row
 path/to/anchor/encoder_cfg.csv
 ```
 
-notes: 
-- if **test_sequence** or **encoder_cfg** specify a relative path, it is relative to where the command is running
-- **{WORKING_DIR}** resolves to the encoder config directory, eg. `path/to/anchor/sub.cfg`
+
 
 
 # Raw video sequence descritpion
 
 YUV sequences are currently described through a sidecar file.
-eg. for the above `path/to/sample.yuv`, add the following `path/to/sample.json`
+
+eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/reference/sample.json`
 
 ```
 {
@@ -103,11 +141,10 @@ eg. for the above `path/to/sample.yuv`, add the following `path/to/sample.json`
 }
 ```
 
-
 # Current limitations
-
-- metrics computation assumes reference sequence and reconstructed sequences share the same chroma format and bitdepth
+- transfer is not supported, color space conversions is left up to the encoder configuration
 - only planar YUV is supported at the moment
-- color space conversions are left up to the encoder configuration
+- metrics computation assumes reference sequence and reconstructed sequences share the same chroma format and bitdepth
+
 
 

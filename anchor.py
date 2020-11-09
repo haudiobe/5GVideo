@@ -8,7 +8,7 @@ from typing import List
 
 from utils import VideoSequence, VideoInfo
 
-RE_WORKING_DIR = r'^{WORDKING_DIR}'
+RE_WORKING_DIR = r'^{ANCHOR_DIR}'
 
 def _preproc(param, anchor:'AnchorCfg'):
     if type(param) == str:
@@ -28,7 +28,7 @@ class VariantCfg:
 
     @property
     def bitstream(self):
-        return self.anchor.working_dir / f'{self.basename}.bin'
+        return self.anchor.working_dir / f'{self.basename}.bit'
 
     @property
     def reconstructed(self):

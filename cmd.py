@@ -77,7 +77,7 @@ def decode_anchor(anchor:AnchorCfg, baseline=True):
 def man():
     h = """
     usage:
-        cmd.py cfg.json [encode|decode|metrics]
+        cmd.py cfg.json [encode] [decode] [metrics]
     
     cfg.json
         a valid anchor configuration
