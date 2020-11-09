@@ -3,7 +3,7 @@ import sys
 import os
 import csv
 
-from anchor import AnchorCfg, VariantCfg
+from anchor import AnchorCfg, VariantCfg, yuvmd5
 from encoders import get_encoder
 from metrics import VariantData, psnr_stats, ssim_stats, avg, bd_q
 
@@ -32,7 +32,8 @@ metrics_keys = [
 ]
 
 def compute_variant_metrics(variant:VariantCfg) -> VariantData:
-    avg_bitrate = os.path.getsize(variant.bitstream) * 8 / variant.anchor.reference.duration
+    # bit/s
+    avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / variant.anchor.reference.duration)
     v = []
     for frame in zip(psnr_stats(variant), ssim_stats(variant)):
         f = {}
@@ -50,28 +51,24 @@ def compute_anchor_metrics(anchor:AnchorCfg):
     to_csv(f'{anchor.working_dir / anchor.basename}.csv', keys, [m.data for m in data])
     return data
 
-def encode_anchor(anchor:AnchorCfg, baseline=True, recon=True):
+def encode_anchor(anchor:AnchorCfg, recon=True):
     enc = get_encoder(anchor.encoder_id)
     if enc == None:
         raise Exception(f'unknown encoder: {anchor.encoder_id}')
-    if baseline == True:
-        var = VariantCfg(anchor, 'default', {})
-        enc.encode_variant(var, recon=recon)
-        return
     for var in anchor.variants:
         enc.encode_variant(var, recon=recon)
 
-
-def decode_anchor(anchor:AnchorCfg, baseline=True):
+def decode_anchor(anchor:AnchorCfg):
     enc = get_encoder(anchor.encoder_id)
     if enc == None:
         raise Exception(f'unknown encoder: {anchor.encoder_id}')
-    if baseline == True:
-        var = VariantCfg(anchor, 'default', {})
-        enc.decode_variant(var)
-        return
     for var in anchor.variants:
         enc.decode_variant(var)
+
+def md5_reconstucted(anchor:AnchorCfg):
+    for var in anchor.variants:
+        h = yuvmd5(var.reconstructed)
+        print(h)
 
 
 def man():
@@ -87,52 +84,49 @@ def man():
 
 def parse_args():
     if len(sys.argv) <= 1:
-        return None, False, False, False, False, False
+        return None, False, False, False
 
     if not os.path.exists(sys.argv[1]):
         print(f'config file not found {sys.argv[1]}')
-        return None, False, False, False, False, False
+        return None, False, False, False
     
     cfg = sys.argv[1]
-    
+
     if len(sys.argv) == 2:
-        return cfg, False, True, True, True, True
+        return cfg, True, True, True
 
     encode = "encode" in sys.argv
     decode = "decode" in sys.argv
     metrics = "metrics" in sys.argv
-    compare = "compare" in sys.argv
-    baseline = "baseline" in sys.argv
     
-    return cfg, baseline, encode, decode, metrics, compare
+    return cfg, encode, decode, metrics
 
 
 def main():
 
-    cfg, baseline, encode, decode, metrics, compare = parse_args()
+    cfg, encode, decode, metrics = parse_args()
 
-    if (cfg is None) or not (encode or decode or metrics or compare):
+    if (cfg is None) or not (encode or decode or metrics):
         man()
         return
     
     anchor = AnchorCfg.load(cfg)
-    # @TODO: anchor.working_dir = "/path/to/custom/dir"
 
     if encode:
-        encode_anchor(anchor, baseline, recon=decode)
+        encode_anchor(anchor, recon=decode)
 
     if decode and not encode:
-        decode_anchor(anchor, baseline)
+        decode_anchor(anchor)
 
+    if decode:
+        md5_reconstucted(anchor)
+    
     data = None
 
     if metrics:
         data = compute_anchor_metrics(anchor)
         for var in data:
             print(var.to_string())
-
-    if compare:
-        raise NotImplementedError()
 
 if __name__ == "__main__":
     main()

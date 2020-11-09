@@ -1,7 +1,6 @@
 import os
 import subprocess
 import json
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from enum import Enum
 from typing import List
@@ -19,12 +18,6 @@ def run_process(log:str, *cmd):
                     if proc.returncode != 0:
                         raise Exception(f'command failled {proc.returncode}')
                     return
-
-def replace_ext(f:str, new_ext:str, pos=1):
-    it = f.split(".")[:-pos]
-    it.append(new_ext)
-    return ".".join(it)
-
 
 class VideoInfo:
 

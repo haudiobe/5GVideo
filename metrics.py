@@ -1,5 +1,3 @@
-import numpy as np
-import scipy
 import os
 import subprocess
 from statistics import mean
@@ -9,7 +7,7 @@ from utils import VideoSequence
 def  _ffavf_metric(ref:VideoSequence, dist:VideoSequence, measurement="psnr"):
     assert measurement in ["psnr", "ssim"]
     graph = [
-        'gpac',
+        os.getenv('GPAC_APP', 'gpac'),
         '-i', f'{dist.path}:size={dist.width}x{dist.height}:spfmt={dist.pixfmt}:fps={dist.fps}:#ffid=dist:FID=V1',
         '-i', f'{ref.path}:size={ref.width}x{ref.height}:spfmt={ref.pixfmt}:fps={ref.fps}:#ffid=ref:FID=V2',
     ]
@@ -19,6 +17,7 @@ def  _ffavf_metric(ref:VideoSequence, dist:VideoSequence, measurement="psnr"):
     avfg += f'[dist]scale={ref.width}:{ref.height},'
     # if framerates do not match, use closest frame in the past from reconstructed sequence
     avfg += f'fps=round=up:fps={ref.fps}[main];'
+    # ==> add color format, tone mapping filters here ? <==
     # run measurement filter
     fout = dist.path.parent / f'{dist.path.stem}.{measurement}.log'
     # note the order: [recon_seq][orig_seq], with [recon_seq] being the main graph input 
@@ -74,7 +73,7 @@ def avg(seq:list, *keys) -> dict:
     avg = { k: 0 for k in keys }
     c = len(seq)
     if c == 0:
-        print("empty dataset")
+        print("empty dataset. the sequence may be too short.")
         return {}
     for f in seq :
         for k in keys:
@@ -84,6 +83,9 @@ def avg(seq:list, *keys) -> dict:
     return avg
 
 def bd_q(RA, QA, RT, QT, piecewise=0):
+    import numpy as np
+    import scipy
+    
     lRA = np.log(RA)
     lRT = np.log(RT)
     QA = np.array(QA)

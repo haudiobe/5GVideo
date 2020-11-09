@@ -1,13 +1,23 @@
 
+# Quickstart
+
+given an anchor definition, the tool performs encoding, reconstruction and runs additional metrics computation for all variants.
+
+
+1. add the `samples/references/yuv420_1280x720_8bit_rec709.yuv` sequence
+
+2. set the environment variable `HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic`
+
+3. generate the sample HM anchor `./cmd.py ./samples/anchors/sample_hm.json encode decode`
+
+
 # Usage
 
 ```
 ./cmd.py ./anchor.json [encode] [decode] [metrics]
 ```
 
-given an anchor definition, the tool performs encoding, reconstruction and runs additional metrics computation in one step for all variants.
-
-> the tool assumes you have reference encoders compiled, with environment variables pointing to the executables, see below.
+- the tool assumes you have reference encoders compiled, with environment variables pointing to the executables, see below.
 
 
 ## encode
@@ -42,7 +52,7 @@ runs the **reference decoder** to reconstruct the bitstream, with the output chr
 
 generates some metrics for each variant defined in the anchor
 
-> the `metrics` options currently requires third party tools, see below.
+> the `metrics` options uses third party tools, see below.
 
 
 
@@ -69,34 +79,74 @@ implement the ReferenceEncoder interface (encoder_id, encode_variant, decode_var
 
 # Anchor definition
 
+example ***anchor.json*** :
 ```
 {
     "description": "human readable description, use case, settings overview ...",
-    "test_sequence": "path/to/reference/sample.yuv",
+    "reference": "path/to/reference/sample.yuv",
     "encoder": "HM",
     "encoder_cfg": "path/to/anchor/encoder_cfg.cfg",
     "variants": {
         "variant_id0": {
-            "OptionKey": "OptionValue",
-            "OptionKey2": "{ANCHOR_DIR}/sub.cfg"
+            "OptionKey": "OptionValue0",
+            "OptionKey2": "{ANCHOR_DIR}/sub0.cfg",
+            [...]
         },
         "variant_id1": {
-            "OptionKey": "OptionValue"
-            "OptionKey2": "{ANCHOR_DIR}/sub.cfg"
+            "OptionKey": "OptionValue1",
+            "OptionKey2": "{ANCHOR_DIR}/sub1.cfg",
+            [...]
         },
         [...]
     }
 }
 ```
 
-notes: 
-- if `test_sequence` or `encoder_cfg` is a relative path, it is interpreted as **relative the current shell working directory**
-- when used, `{ANCHOR_DIR}` resolves to the anchor's encoder config directory, **path/to/anchor**
+### notes :
+- if `test_sequence` or `encoder_cfg` is a relative path, it is interpreted as **relative to *anchor.json***.
+- when used in the variant options `{ANCHOR_DIR}` is expanded to the anchor's encoder config directory: **path/to/anchor**.
+
+## Variant options to encoder CLI args mapping
+
+### **HM** & **VTM**
+```
+{
+    "encoder_cfg": "/encoder.cfg",
+    "variants": {
+        "variant_id0": {
+            "-k": "v",
+            "--Key": "value"
+        }
+    }
+}
+```
+maps to `-c /encoder.cfg -k v --Key=value`
+
+### **JM**
+```
+{
+    "encoder_cfg": "/encoder.cfg",
+    "variants": {
+        "variant_id0": {
+            "-f": "file.cfg",
+            "Key": "value"
+        }
+    }
+}
+```
+maps to `-d /encoder.cfg -f file.cfg -p Key=value`
+
+
+
+
+## **Output**
 
 the above configuration would generate the following :
 ```
 # variant bitstream
 path/to/anchor/encoder_cfg.variant_id0.bit
+
+# encoder log (VTM has additional .opl file)
 path/to/anchor/encoder_cfg.variant_id0.enc.log
 
 # reconstructed variant
@@ -108,7 +158,7 @@ path/to/anchor/encoder_cfg.variant_id0.csv
 [...]
 
 path/to/anchor/encoder_cfg.variant_id1.bit
-path/to/anchor/encoder_cfg.variant_id1.rec
+path/to/anchor/encoder_cfg.variant_id1.yuv
 path/to/anchor/encoder_cfg.variant_id1.enc.log
 path/to/anchor/encoder_cfg.variant_id1.csv
 
@@ -117,8 +167,6 @@ path/to/anchor/encoder_cfg.variant_id1.csv
 # averaged metrics, one variant per row
 path/to/anchor/encoder_cfg.csv
 ```
-
-
 
 
 # Raw video sequence descritpion
@@ -137,14 +185,25 @@ eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/ref
     "fps": 30,
     "color_space": "rec709",
     "transfer": null,
-    "framecount": 90
+    "framecount": 30
 }
 ```
 
 # Current limitations
-- transfer is not supported, color space conversions is left up to the encoder configuration
-- only planar YUV is supported at the moment
+- only planar YUV reference sequences are supported
+- the **transfer** and **color_space** properties are currently ignored, however color space conversions can be configured through the encoder.cfg file and through variant options for each encoder
 - metrics computation assumes reference sequence and reconstructed sequences share the same chroma format and bitdepth
 
+
+# Dependencies [metrics]
+
+The open-source gpac application is needed for metrics computation.
+
+Detailed build instruction please refer to : https://github.com/gpac/gpac/wiki/Build-Introduction
+
+the path to the gpac executable can be configured through environment variable, eg. :
+```
+GPAC_APP=/path/to/bin/gpac
+```
 
 

@@ -5,7 +5,7 @@ import re
 from typing import List, Callable
 import subprocess
 from abc import ABC, abstractmethod
-from utils import VideoInfo, replace_ext, run_process
+from utils import VideoInfo, run_process
 from anchor import AnchorCfg, VariantCfg
 
 __encoders__ = {}
@@ -147,13 +147,18 @@ class JM(ReferenceEncoder):
             "-p", f'SourceHeight={v.anchor.reference.height}',
             "-p", f'SourceBitDepthLuma={v.anchor.reference.bitdepth}',
             "-p", f'SourceBitDepthChroma={v.anchor.reference.bitdepth_chroma}',
-            "-p", f'InputChromaFormat={v.anchor.reference.chroma_subsampling}',
-            # @FIXME: Planar, YUV, ITU_REC709 only for now
-            "-p", f'Interleaved=0',
-            "-p", f'RGBInput=0',
-            "-p", f'StandardRange=0',
-            "-p", f'VideoCode=1' ]
-
+            "-p", f'InputChromaFormat={v.anchor.reference.chroma_subsampling}' ]
+        
+        keys = v.options.keys()
+        if "Interleaved" not in keys:
+            args += ["-p", "Interleaved=0"]
+        if "RGBInput" not in keys:
+            args += ["-p", 'RGBInput=0']
+        if "StandardRange" not in keys:
+            args += ["-p", 'StandardRange=0']
+        if "VideoCode" not in keys:
+            args += ["-p", 'VideoCode=1']
+        
         if v.anchor.reference.chroma_subsampling == "400":
             args += ["-p", f'YUVFormat=0']
         elif v.anchor.reference.chroma_subsampling == "420":

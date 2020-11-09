@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import hashlib
 
 from pathlib import Path
 from enum import Enum
@@ -14,6 +15,16 @@ def _preproc(param, anchor:'AnchorCfg'):
     if type(param) == str:
         return re.sub(RE_WORKING_DIR, f'{anchor.working_dir}', param)
     return param
+
+def yuvmd5(yuv:Path):
+    md5 = hashlib.md5()
+    block_size = 128 * md5.block_size
+    with open(yuv, 'rb') as yuvfile:
+        chunk = yuvfile.read(block_size)
+        while chunk:
+            md5.update(chunk)
+            chunk = yuvfile.read(block_size)
+        return md5.hexdigest()
 
 class VariantCfg:
     
@@ -34,6 +45,14 @@ class VariantCfg:
     def reconstructed(self):
         return self.anchor.working_dir /  f'{self.basename}.yuv'
 
+def resolve_path(f:str, rootdir:Path):
+    p = Path(f)
+    if p.is_absolute():
+        return p
+    r = rootdir / f
+    if not r.exists():
+        raise Exception(f'file not found {r}')
+    return r
 
 class AnchorCfg:
     
@@ -71,18 +90,19 @@ class AnchorCfg:
     @property
     def basename(self):
         return self.encoder_cfg.stem
-        
+    
     @staticmethod
     def load(file:str):
         with open(file, 'r') as f:
             
+            rootdir = Path(file).parent
             data = json.load(f)
-        
-            src = data["test_sequence"]
-            test_sequence = VideoSequence.with_sidecar_metadata(Path(src).resolve())
 
+            src = resolve_path(data["reference"], rootdir)
+            test_sequence = VideoSequence.with_sidecar_metadata(Path(src).resolve())
+            
             encoder_id = data["encoder_id"]
-            encoder_cfg = data["encoder_cfg"]
+            encoder_cfg = resolve_path(data["encoder_cfg"], rootdir)
             
             if "variants" in data:
                 variants = data["variants"]

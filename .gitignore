@@ -1,5 +1,8 @@
-anchors/hm/
-anchors/jm/
-anchors/vtm/
+samples/anchors/*/*.log
+samples/anchors/*/*.yuv
+samples/anchors/*/*.bit
+samples/anchors/*/*.csv
+samples/anchors/*/*.json
+samples/anchors/*/*.json
 .venv/
 __pycache__/
