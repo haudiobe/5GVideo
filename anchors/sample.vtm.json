@@ -1,0 +1,22 @@
+{
+    "test_sequence": "./anchors/bbb.yuv",
+    "encoder_id": "VTM",
+    "encoder_cfg": "./anchors/vtm/sample.vtm.cfg",
+    "variants" : {
+        "config0": {
+            "--QP": 18
+        },
+        "config1": {
+            "--QP": 20
+        },
+        "config2": {
+            "--QP": 24
+        },
+        "config3": {
+            "--QP": 28
+        },
+        "config4": {
+            "--QP": 32
+        }
+    }
+}

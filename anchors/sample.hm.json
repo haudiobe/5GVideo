@@ -1,0 +1,22 @@
+{
+    "test_sequence": "./anchors/bbb.yuv",
+    "encoder_id": "HM",
+    "encoder_cfg": "./anchors/hm/sample.cfg",
+    "variants" : {
+        "config0": {
+            "--QP": 18
+        },
+        "config1": {
+            "--QP": 20
+        },
+        "config2": {
+            "--QP": 24
+        },
+        "config3": {
+            "--QP": 28
+        },
+        "config4": {
+            "--QP": 32
+        }
+    }
+}
