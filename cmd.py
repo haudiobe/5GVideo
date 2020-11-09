@@ -3,7 +3,7 @@ import sys
 import os
 import csv
 
-from anchor import AnchorCfg, VariantCfg, yuvmd5
+from anchor import AnchorCfg, VariantCfg, md5_checksum
 from encoders import get_encoder
 from metrics import VariantData, psnr_stats, ssim_stats, avg, bd_q
 
@@ -67,8 +67,17 @@ def decode_anchor(anchor:AnchorCfg):
 
 def md5_reconstucted(anchor:AnchorCfg):
     for var in anchor.variants:
-        h = yuvmd5(var.reconstructed)
-        print(h)
+        h = md5_checksum(var.reconstructed)
+        p = var.reconstructed.parent / f'{var.reconstructed.stem}.yuv.md5'
+        with p.open('w') as f:
+            f.write(h)
+
+def md5_bitstream(anchor:AnchorCfg):
+    for var in anchor.variants:
+        h = md5_checksum(var.bitstream)
+        p = var.bitstream.parent / f'{var.bitstream.stem}.md5'
+        with p.open('w') as f:
+            f.write(h)
 
 
 def man():
@@ -114,6 +123,7 @@ def main():
 
     if encode:
         encode_anchor(anchor, recon=decode)
+        md5_bitstream(anchor)
 
     if decode and not encode:
         decode_anchor(anchor)

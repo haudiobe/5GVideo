@@ -1,8 +1,9 @@
+samples/references/*.yuv
 samples/anchors/*/*.log
 samples/anchors/*/*.yuv
 samples/anchors/*/*.bit
 samples/anchors/*/*.csv
 samples/anchors/*/*.json
-samples/anchors/*/*.json
+samples/anchors/*/*.md5
 .venv/
 __pycache__/

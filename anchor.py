@@ -16,14 +16,14 @@ def _preproc(param, anchor:'AnchorCfg'):
         return re.sub(RE_WORKING_DIR, f'{anchor.working_dir}', param)
     return param
 
-def yuvmd5(yuv:Path):
+def md5_checksum(p:Path):
     md5 = hashlib.md5()
     block_size = 128 * md5.block_size
-    with open(yuv, 'rb') as yuvfile:
-        chunk = yuvfile.read(block_size)
+    with open(p, 'rb') as f:
+        chunk = f.read(block_size)
         while chunk:
             md5.update(chunk)
-            chunk = yuvfile.read(block_size)
+            chunk = f.read(block_size)
         return md5.hexdigest()
 
 class VariantCfg:
