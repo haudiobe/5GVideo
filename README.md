@@ -1,14 +1,29 @@
 
 # Quickstart
 
-given an anchor definition, the tool performs encoding, reconstruction and runs additional metrics computation for all variants.
-
+Given an anchor definition, the tool performs encoding, reconstruction and runs additional metrics computation for all variants.
 
 1. add the `samples/references/yuv420_1280x720_8bit_rec709.yuv` sequence
 
-2. set the environment variable `HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic`
+2. set the environment variable: `HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic`
 
-3. generate the sample HM anchor `./cmd.py ./samples/anchors/sample_hm.json encode decode`
+3. generate the sample HM anchor 
+```
+./cmd.py ./samples/anchors/sample_hm.json encode decode`
+```
+
+## Using docker 
+
+a sample [Dockerfile](https://docs.docker.com/get-docker/) is provided to build an image containing all the dependencies : HM, JM, and VTM
+
+1. build the image 
+```
+docker build -t anchortools -f docker/Dockerfile .
+```
+2. run the tool 
+```
+docker run --mount type=bind,source="$(pwd)"/samples,target=/samples -it anchortools cmd.py /samples/anchors/sample_hm.json
+```
 
 
 # Usage
@@ -59,13 +74,21 @@ generates some metrics for each variant defined in the anchor
 # Reference encoders 
 
 the following environment variables are needed depending on the encoder/decoder you want to use:
+
+[JM](https://vcgit.hhi.fraunhofer.de/jct-vc/JM)
 ```
 JM_ENCODER=/path/to/JM/bin/lencod_static
 JM_DECODER=/path/to/JM/bin/ldecod_static
+```
 
+[HM](https://vcgit.hhi.fraunhofer.de/jct-vc/HM)
+```
 HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic
 HM_DECODER=/path/to/bin/TAppDecoderStatic
+```
 
+[VTM](https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM)
+```
 VTM_ENCODER=/path/to/bin/EncoderAppStatic
 VTM_DECODER=/path/to/bin/DecoderAppStatic
 ```
@@ -108,7 +131,7 @@ example ***anchor.json*** :
 
 ## Variant options to encoder CLI args mapping
 
-### **HM** & **VTM**
+### **HM**, **VTM**
 ```
 {
     "encoder_cfg": "/encoder.cfg",
