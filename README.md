@@ -16,15 +16,19 @@ Given an anchor definition, the tool performs encoding, reconstruction and runs 
 
 a sample [Dockerfile](https://docs.docker.com/get-docker/) is provided to build an image containing all the dependencies : HM, JM, and VTM
 
-1. build the image 
 ```
-docker build -t anchortools -f docker/Dockerfile .
-```
-2. run the tool 
-```
-docker run --mount type=bind,source="$(pwd)"/samples,target=/samples -it anchortools cmd.py /samples/anchors/sample_hm.json
+git clone https://github.com/haudiobe/5GVideo.git
+
+cd 5GVideo
+
+docker build -t anchortools -f ./docker/Dockerfile .
+
+# add the missing `./samples/references/yuv420_1280x720_8bit_rec709.yuv` sequence
+
+docker run --mount type=bind,source=./samples,target=/samples -it anchortools cmd.py /samples/anchors/sample_hm.json
 ```
 
+> the --mount option mounts the directory *source* path, and makes it available as *target* path in the running container.
 
 # Usage
 
@@ -213,9 +217,10 @@ eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/ref
 ```
 
 # Current limitations
+- fps is converted to integer
 - only planar YUV reference sequences are supported
 - the **transfer** and **color_space** properties are currently ignored, however color space conversions can be configured through the encoder.cfg file and through variant options for each encoder
-- metrics computation assumes reference sequence and reconstructed sequences share the same chroma format and bitdepth
+- metrics computation assumes reference sequence and reconstructed sequences share the same chroma format, frame packing and bitdepth
 
 
 # Dependencies [metrics]
