@@ -69,10 +69,14 @@ runs the **reference decoder** to reconstruct the bitstream, with the output chr
 ./cmd.py ./anchor.json metrics
 ```
 
-generates some metrics for each variant defined in the anchor
+metrics computation uses: 
+https://gitlab.com/standards/HDRTools
 
-> the `metrics` options uses third party tools, see below.
 
+the following environment variables is needed:
+```
+HDRMETRICS_TOOL=/path/to/HDRTools/build/bin/HDRMetrics
+```
 
 
 # Reference encoders 
@@ -111,6 +115,10 @@ example ***anchor.json*** :
 {
     "description": "human readable description, use case, settings overview ...",
     "reference": "path/to/reference/sample.yuv",
+    "reference_segment": {
+        "start_frame": 10,
+        "frame_count": 30
+    }
     "encoder": "HM",
     "encoder_cfg": "path/to/anchor/encoder_cfg.cfg",
     "variants": {
@@ -221,17 +229,5 @@ eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/ref
 - only planar YUV reference sequences are supported
 - the **transfer** and **color_space** properties are currently ignored, however color space conversions can be configured through the encoder.cfg file and through variant options for each encoder
 - metrics computation assumes reference sequence and reconstructed sequences share the same chroma format, frame packing and bitdepth
-
-
-# Dependencies [metrics]
-
-The open-source gpac application is needed for metrics computation.
-
-Detailed build instruction please refer to : https://github.com/gpac/gpac/wiki/Build-Introduction
-
-the path to the gpac executable can be configured through environment variable, eg. :
-```
-GPAC_APP=/path/to/bin/gpac
-```
 
 
