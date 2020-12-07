@@ -17,15 +17,17 @@ def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
             writer.writerow(row)
 
 def compute_variant_metrics(variant:VariantCfg) -> VariantData:
+    data = hdrtools_metrics(variant)
+    if variant.anchor.dry_run:
+        return
     duration = variant.anchor.frame_count * variant.anchor.reference.duration / variant.anchor.reference.framecount
     avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / duration)
-    data = hdrtools_metrics(variant)
     to_dict = lambda keys, data : { k:v for k,v in zip(keys, data) }
     return VariantData(variant.basename, avg_bitrate, **to_dict(data['metrics'], data['avg']))
 
 def compute_anchor_metrics(anchor:AnchorCfg):
     data = [compute_variant_metrics(v) for v in anchor.variants]
-    if len(data) == 0:
+    if len(data) == 0 or anchor.dry_run:
         return
     keys = data[0].data.keys()
     to_csv(f'{anchor.working_dir / anchor.basename}.csv', keys, [m.data for m in data])
@@ -87,23 +89,24 @@ def parse_args():
     encode = "encode" in sys.argv
     decode = "decode" in sys.argv
     metrics = "metrics" in sys.argv
+    dry_run = "-d" in sys.argv
 
     if metrics:
         assert os.getenv('HDRMETRICS_TOOL') != None, 'HDRMETRICS_TOOL environment variable not set'
-    print(metrics, os.getenv('HDRMETRICS_TOOL'))
     
-    return cfg, encode, decode, metrics
+    return cfg, encode, decode, metrics, dry_run
 
 
 def main():
 
-    cfg, encode, decode, metrics = parse_args()
+    cfg, encode, decode, metrics, dry_run = parse_args()
 
     if (cfg is None) or not (encode or decode or metrics):
         man()
         return
     
     anchor = AnchorCfg.load(cfg)
+    anchor.dry_run = dry_run
 
     if encode:
         encode_anchor(anchor, recon=decode)
@@ -119,6 +122,8 @@ def main():
 
     if metrics:
         data = compute_anchor_metrics(anchor)
+        if anchor.dry_run:
+            return
         for var in data:
             print(var.to_string())
 

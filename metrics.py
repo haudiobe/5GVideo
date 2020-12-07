@@ -109,7 +109,9 @@ def hdrtools_metrics(v:VariantCfg):
 
     cmd = [tool, *input0, *input1, *run]
     log = dist.path.parent / f'{dist.path.stem}.metrics.log'
-    run_process(log, *cmd)
+    run_process(log, *cmd, dry_run=v.anchor.dry_run)
+    if v.anchor.dry_run:
+        return
     return parse_metrics(log)
 
 

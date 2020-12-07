@@ -58,7 +58,7 @@ def resolve_path(f:str, rootdir:Path):
 
 class AnchorCfg:
     
-    def __init__(self, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants={}, description:str=None, start_frame=0, frame_count=1):
+    def __init__(self, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants={}, description:str=None, start_frame=0, frame_count=1, dry_run=False):
         self._encoder_id = encoder_id
         self._encoder_cfg = encoder_cfg
         self._reference = reference
@@ -66,7 +66,9 @@ class AnchorCfg:
         self._variants = { k: VariantCfg(self, k, opts) for k, opts in variants.items() }
         self._start_frame = start_frame
         self._frame_count = frame_count
-    
+        
+        self.dry_run = dry_run
+
     @property
     def working_dir(self):
         return Path(self.encoder_cfg).resolve().parent

@@ -6,7 +6,10 @@ from enum import Enum
 from typing import List
 from fractions import Fraction
 
-def run_process(log:str, *cmd):
+def run_process(log:str, *cmd, dry_run=False):
+    if dry_run:
+        print(" ".join(cmd))
+        return
     with open(log, 'w') as logfile:
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
             while True:

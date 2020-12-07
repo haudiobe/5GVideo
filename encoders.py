@@ -86,7 +86,7 @@ class HM(ReferenceEncoder):
     def encode_variant(v:VariantCfg, recon=True, **opts):
         encoder = get_env("HM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts))
+        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts), dry_run=v.anchor.dry_run)
         return logfile
 
     @staticmethod
@@ -97,7 +97,7 @@ class HM(ReferenceEncoder):
             "-o": v.reconstructed,
             **opts })
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        run_process(logfile, decoder, *args)
+        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
         return logfile
 
 
@@ -110,7 +110,7 @@ class VTM(ReferenceEncoder):
         encoder = get_env("VTM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
         opl = v.anchor.working_dir / f'{v.basename}.opl'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), '-opl', opl, *_to_cli_args(opts))
+        run_process(logfile, encoder, *reference_encoder_args(v, recon), '-opl', opl, *_to_cli_args(opts), dry_run=v.anchor.dry_run)
         return logfile
 
     @staticmethod
@@ -121,7 +121,7 @@ class VTM(ReferenceEncoder):
             "-o": v.reconstructed,
             **opts })
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        run_process(logfile, decoder, *args)
+        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
         return logfile
 
 
@@ -179,7 +179,7 @@ class JM(ReferenceEncoder):
                 args += ['-f', str(val)]
             else:
                 args += ['-p', f'{opt}={val}']
-        run_process(logfile, encoder, *args) 
+        run_process(logfile, encoder, *args, dry_run=v.anchor.dry_run) 
         return logfile
 
     @staticmethod
@@ -196,5 +196,5 @@ class JM(ReferenceEncoder):
         args = [ "-i", v.bitstream,
             "-o", v.reconstructed,
             "-r", v.anchor.reference.path ] 
-        run_process(logfile, decoder, *args)
+        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
         return logfile
