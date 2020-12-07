@@ -5,7 +5,7 @@ import csv
 
 from anchor import AnchorCfg, VariantCfg, md5_checksum
 from encoders import get_encoder
-from metrics import VariantData, psnr_stats, ssim_stats, avg, bd_q
+from metrics import VariantData, hdrtools_metrics, bd_q
 
 from typing import List, Iterable
 
@@ -16,32 +16,12 @@ def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
         for row in values:
             writer.writerow(row)
 
-metrics_keys = [
-    'psnr_y',
-    'psnr_u',
-    'psnr_v',
-    'psnr_avg',
-    'mse_y',
-    'mse_u',
-    'mse_v',
-    'mse_avg',
-    'ssim_y',
-    'ssim_u',
-    'ssim_v',
-    'ssim_all'
-]
-
 def compute_variant_metrics(variant:VariantCfg) -> VariantData:
-    # bit/s
-    avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / variant.anchor.reference.duration)
-    v = []
-    for frame in zip(psnr_stats(variant), ssim_stats(variant)):
-        f = {}
-        for metric in frame:
-            f.update(metric)
-        v.append(f)
-    to_csv(f'{variant.anchor.working_dir / variant.basename}.csv', metrics_keys, v)
-    return VariantData(variant.basename, avg_bitrate, **avg(v, *metrics_keys))
+    duration = variant.anchor.frame_count * variant.anchor.reference.duration / variant.anchor.reference.framecount
+    avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / duration)
+    data = hdrtools_metrics(variant)
+    to_dict = lambda keys, data : { k:v for k,v in zip(keys, data) }
+    return VariantData(variant.basename, avg_bitrate, **to_dict(data['metrics'], data['avg']))
 
 def compute_anchor_metrics(anchor:AnchorCfg):
     data = [compute_variant_metrics(v) for v in anchor.variants]
@@ -107,6 +87,10 @@ def parse_args():
     encode = "encode" in sys.argv
     decode = "decode" in sys.argv
     metrics = "metrics" in sys.argv
+
+    if metrics:
+        assert os.getenv('HDRMETRICS_TOOL') != None, 'HDRMETRICS_TOOL environment variable not set'
+    print(metrics, os.getenv('HDRMETRICS_TOOL'))
     
     return cfg, encode, decode, metrics
 

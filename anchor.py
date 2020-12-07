@@ -45,6 +45,8 @@ class VariantCfg:
     def reconstructed(self):
         return self.anchor.working_dir /  f'{self.basename}.yuv'
 
+
+
 def resolve_path(f:str, rootdir:Path):
     p = Path(f)
     if p.is_absolute():
@@ -56,13 +58,15 @@ def resolve_path(f:str, rootdir:Path):
 
 class AnchorCfg:
     
-    def __init__(self, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:dict={}, description:str=None):
+    def __init__(self, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants={}, description:str=None, start_frame=0, frame_count=1):
         self._encoder_id = encoder_id
         self._encoder_cfg = encoder_cfg
         self._reference = reference
         self._description = description
         self._variants = { k: VariantCfg(self, k, opts) for k, opts in variants.items() }
-
+        self._start_frame = start_frame
+        self._frame_count = frame_count
+    
     @property
     def working_dir(self):
         return Path(self.encoder_cfg).resolve().parent
@@ -78,6 +82,14 @@ class AnchorCfg:
     @property
     def reference(self) -> VideoSequence:
         return self._reference
+
+    @property
+    def start_frame(self) -> int:
+        return self._start_frame
+
+    @property
+    def frame_count(self) -> int:
+        return self._frame_count
 
     @property
     def variants(self) -> dict:
@@ -108,6 +120,15 @@ class AnchorCfg:
                 variants = data["variants"]
             else:
                 variants = {}
+            
+            if "reference_segment" in data:
+                segment = data["reference_segment"]
+                start_frame = segment.get('start_frame', 0)
+                frame_count = segment.get('frame_count', 1)
+            else:
+                start_frame = 0
+                frame_count = 1
+
             description = data.get("description", None)
-            return AnchorCfg(test_sequence, encoder_id, encoder_cfg, variants, description)
+            return AnchorCfg(test_sequence, encoder_id, encoder_cfg, variants, description, start_frame, frame_count)
             

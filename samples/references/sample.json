@@ -1,0 +1,11 @@
+{
+    "width": 1280,
+    "height": 720,
+    "chroma_format": "yuv",
+    "chroma_subsampling": "420",
+    "bitdepth": 8,
+    "fps": 1,
+    "color_space": "bt.709",
+    "transfer": null,
+    "framecount": 1
+}

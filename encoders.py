@@ -63,9 +63,10 @@ def reference_encoder_args(variant:VariantCfg, recon=True):
     """
     base = { "-c": f'{variant.anchor.encoder_cfg}',
         "-i": f'{variant.anchor.reference.path}',
-        "-b": f'{variant.bitstream}' ,
+        "-b": f'{variant.bitstream}',
         "--FrameRate": round(variant.anchor.reference.fps) ,
-        "--FramesToBeEncoded": variant.anchor.reference.framecount ,
+        "--FrameSkip": variant.anchor.start_frame ,
+        "--FramesToBeEncoded": variant.anchor.frame_count ,
         "--SourceWidth": variant.anchor.reference.width ,
         "--SourceHeight": variant.anchor.reference.height ,
         "--InputBitDepth": variant.anchor.reference.bitdepth ,
@@ -98,6 +99,7 @@ class HM(ReferenceEncoder):
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
         run_process(logfile, decoder, *args)
         return logfile
+
 
 @register_encoder
 class VTM(ReferenceEncoder):
@@ -142,7 +144,8 @@ class JM(ReferenceEncoder):
             '-p', f'InputFile={v.anchor.reference.path}',
             "-p", f'OutputFile={v.bitstream}' ,
             "-p", f'FrameRate={float(v.anchor.reference.fps)}',
-            "-p", f'FramesToBeEncoded={v.anchor.reference.framecount}',
+            "-p", f'StartFrame={v.anchor.start_frame}',
+            "-p", f'FramesToBeEncoded={v.anchor.frame_count}',
             "-p", f'SourceWidth={v.anchor.reference.width}',
             "-p", f'SourceHeight={v.anchor.reference.height}',
             "-p", f'SourceBitDepthLuma={v.anchor.reference.bitdepth}',

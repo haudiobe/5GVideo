@@ -19,9 +19,10 @@ def run_process(log:str, *cmd):
                         raise Exception(f'command failled {proc.returncode}')
                     return
 
+
 class VideoInfo:
 
-    def __init__(self, width:int=None, height:int=None, chroma_format:str=None, chroma_subsampling:str=None, bitdepth:int=None, bitdepth_chroma:int=None, fps:int=None, framecount:int=None, color_space:str="", transfer:dict=None):
+    def __init__(self, width:int=None, height:int=None, chroma_format:str=None, chroma_subsampling:str=None, bitdepth:int=None, bitdepth_chroma:int=None, fps:int=None, framecount:int=None, color_space:str=None, transfer:dict=None):
         self.width = width
         self.height = height
         self.chroma_format = chroma_format
@@ -30,6 +31,8 @@ class VideoInfo:
         self.bitdepth_chroma = bitdepth if bitdepth_chroma is None else bitdepth_chroma
         self.fps = fps
         self.framecount = framecount
+        self.color_space = color_space
+        self.transfer = transfer
 
     @property
     def duration(self):
