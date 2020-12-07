@@ -33,11 +33,11 @@ docker run --mount type=bind,source=./samples,target=/samples -it anchortools cm
 # Usage
 
 ```
-./cmd.py ./anchor.json [encode] [decode] [metrics]
+./cmd.py ./anchor.json [encode] [decode] [metrics] [-d]
 ```
 
 - the tool assumes you have reference encoders compiled, with environment variables pointing to the executables, see below.
-
+- `-d` runs in dry mode, output the sequence of commands to stdout
 
 ## encode
 
