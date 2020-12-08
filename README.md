@@ -204,7 +204,7 @@ path/to/anchor/encoder_cfg.csv
 ```
 
 
-# Raw video sequence descritpion
+# Raw video sequence description
 
 YUV sequences are currently described through a sidecar file.
 
