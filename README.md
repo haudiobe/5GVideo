@@ -25,7 +25,7 @@ docker build -t anchortools -f ./docker/Dockerfile .
 
 # add the missing `./samples/references/yuv420_1280x720_8bit_rec709.yuv` sequence
 
-docker run --mount type=bind,source=./samples,target=/samples -it anchortools cmd.py /samples/anchors/sample_hm.json
+docker run --mount type=bind,source=/path/to/samples,target=/samples -it anchortools ./cmd.py /samples/anchors/sample_hm.json
 ```
 
 > the --mount option mounts the directory *source* path, and makes it available as *target* path in the running container.
@@ -218,7 +218,7 @@ eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/ref
     "chroma_subsampling": "420",
     "bitdepth": 8,
     "fps": 30,
-    "color_space": "rec709",
+    "color_space": "bt.209",
     "transfer": null,
     "framecount": 30
 }

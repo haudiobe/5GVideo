@@ -1,8 +1,8 @@
 {
     "reference": "../references/sample.yuv",
     "reference_segment": {
-        "start_frame": 10,
-        "frame_count": 40
+        "start_frame": 0,
+        "frame_count": 90
     },
     "encoder_id": "HM",
     "encoder_cfg": "sample_hm/sample.cfg",

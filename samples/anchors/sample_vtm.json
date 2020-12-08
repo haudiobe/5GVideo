@@ -1,5 +1,9 @@
 {
     "test_sequence": "./anchors/bbb.yuv",
+    "reference_segment": {
+        "start_frame": 0,
+        "frame_count": 90
+    },
     "encoder_id": "VTM",
     "encoder_cfg": "./anchors/vtm/sample.vtm.cfg",
     "variants" : {
