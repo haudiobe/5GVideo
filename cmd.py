@@ -75,16 +75,16 @@ def man():
 
 def parse_args():
     if len(sys.argv) <= 1:
-        return None, False, False, False
+        return None, False, False, False, False
 
     if not os.path.exists(sys.argv[1]):
         print(f'config file not found {sys.argv[1]}')
-        return None, False, False, False
+        return None, False, False, False, False
     
     cfg = sys.argv[1]
 
     if len(sys.argv) == 2:
-        return cfg, True, True, True
+        return cfg, True, True, True, False
 
     encode = "encode" in sys.argv
     decode = "decode" in sys.argv
@@ -107,6 +107,9 @@ def main():
     
     anchor = AnchorCfg.load(cfg)
     anchor.dry_run = dry_run
+
+    print(anchor)
+    return
 
     if encode:
         encode_anchor(anchor, recon=decode)
