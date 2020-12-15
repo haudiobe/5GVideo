@@ -113,7 +113,7 @@ class AnchorCfg:
             data = json.load(f)
 
             src = resolve_path(data["reference"], rootdir)
-            test_sequence = VideoSequence.with_sidecar_metadata(Path(src).resolve())
+            test_sequence = VideoSequence.from_sidecar_metadata(Path(src).resolve())
             
             encoder_id = data["encoder_id"]
             encoder_cfg = resolve_path(data["encoder_cfg"], rootdir)

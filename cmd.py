@@ -108,9 +108,6 @@ def main():
     anchor = AnchorCfg.load(cfg)
     anchor.dry_run = dry_run
 
-    print(anchor)
-    return
-
     if encode:
         encode_anchor(anchor, recon=decode)
         md5_bitstream(anchor)

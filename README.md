@@ -69,7 +69,7 @@ runs the **reference decoder** to reconstruct the bitstream, with the output chr
 ./cmd.py ./anchor.json metrics
 ```
 
-metrics computation uses: 
+metrics computation uses:
 https://gitlab.com/standards/HDRTools
 
 
@@ -114,7 +114,7 @@ example ***anchor.json*** :
 ```
 {
     "description": "human readable description, use case, settings overview ...",
-    "reference": "path/to/reference/sample.yuv",
+    "reference": "path/to/reference/sample.json",
     "reference_segment": {
         "start_frame": 10,
         "frame_count": 30
@@ -208,26 +208,12 @@ path/to/anchor/encoder_cfg.csv
 
 YUV sequences are currently described through a sidecar file.
 
-eg. for the above `path/to/reference/sample.yuv`, add the following `path/to/reference/sample.json`
+the sidecar file format follows the json schema specified at : https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
 
-```
-{
-    "width": 1280,
-    "height": 720,
-    "chroma_format": "yuv",
-    "chroma_subsampling": "420",
-    "bitdepth": 8,
-    "fps": 30,
-    "color_space": "bt.209",
-    "transfer": null,
-    "framecount": 30
-}
-```
 
 # Current limitations
-- fps is converted to integer
-- only planar YUV reference sequences are supported
-- the **transfer** and **color_space** properties are currently ignored, however color space conversions can be configured through the encoder.cfg file and through variant options for each encoder
-- metrics computation assumes reference sequence and reconstructed sequences share the same chroma format, frame packing and bitdepth
+- framerate is converted to integer (HM only supports integer values)
+- RGB support is not complete
+- metrics computation assumes reference sequence and reconstructed sequences share the 'Properties'
 
 

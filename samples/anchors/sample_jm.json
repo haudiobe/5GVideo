@@ -1,5 +1,5 @@
 {
-    "reference": "../references/yuv420_1280x720_8bit_rec709.yuv",
+    "reference": "../references/yuv420_1280x720_8bit_rec709.json",
     "reference_segment": {
         "start_frame": 0,
         "frame_count": 90

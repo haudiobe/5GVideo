@@ -4,7 +4,7 @@ import struct
 import io
 import os
 
-from utils import VideoSequence
+from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling
 
 from anchor import AnchorCfg, VariantCfg
 
@@ -58,37 +58,61 @@ def parse_metrics(log):
         metrics = read_log(f, metrics)
     return reduce_log(metrics)
 
-def hdrtools_input(v:VideoSequence, ref=True, start_frame=0):
+
+def hdrtools_input(v:VideoSequence, ref=True, start_frame=0, file_header=0):
     i = 0 if ref else 1
     opts = [
         '-p', f'Input{i}File={v.path}',
         '-p', f'Input{i}Width={v.width}',
         '-p', f'Input{i}Height={v.height}',
-        '-p', f'Input{i}BitDepthCmp0={v.bitdepth}',
-        '-p', f'Input{i}BitDepthCmp1={v.bitdepth_chroma}',
-        '-p', f'Input{i}BitDepthCmp2={v.bitdepth_chroma}',
+        '-p', f'Input{i}BitDepthCmp0={v.bit_depth}',
+        '-p', f'Input{i}BitDepthCmp1={v.bit_depth}',
+        '-p', f'Input{i}BitDepthCmp2={v.bit_depth}',
         '-p', f'Input{i}StartFrame={start_frame}',
-        '-p', f'Input{i}FileHeader={0}',
-        '-p', f'Input{i}StartFrame={0}',
-        '-p', f'Input{i}Rate={v.fps}',
-        '-p', f'Input{i}Interleaved={0}', # Planar YUV
-        '-p', f'Input{i}Interlaced={0}',
-        '-p', f'Input{i}ColorSpace=0', # 0:CM_YCbCr, 1:CM_RGB, 2:CM_XYZ
-        # '-p', f'Input{i}SampleRange={0}'
-        # '-p', f'Input{i}FourCCCode={0}'
+        '-p', f'Input{i}FileHeader={file_header}',
+        '-p', f'Input{i}Rate={v.frame_rate}',
+        # '-p', f'Input{i}SampleRange=0' # SR_STANDARD is HDRMetrics' default, (16-235)*k
+        # '-p', f'Input{i}FourCCCode={0}' # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
     ]
+    
+    if v.interleaved:
+        opts += ['-p', f'Input{i}Interleaved=0']
+    else:
+        opts += ['-p', f'Input{i}Interleaved=1']
 
-    cf = { '400': 0, '420': 1, '422': 2, '444': 3 }
-    opts += ['-p', f'Input{i}ChromaFormat={cf.get(v.chroma_subsampling, 1)}']
+    if v.interlaced:
+        opts += ['-p', f'Input{i}Interlaced=0']
+    else:
+        opts += ['-p', f'Input{i}Interlaced=1']
 
-    cs = { 'bt.709':0, 'bt.2020':1, 'bt.p3d60':2, 'bt.p3d65': 3 }
-    opts += ['-p', f'Input{i}ColorPrimaries={cs.get(v.color_space, 4)}']
+    if v.chroma_format == ChromaFormat.YUV:
+        opts += ['-p', f'Input{i}ColorSpace=0'] # 0:CM_YCbCr
+    elif v.chroma_format == ChromaFormat.RGB:
+        opts += ['-p', f'Input{i}ColorSpace=1'] # 1:CM_RGB
+    else:
+        # out of scope
+        raise ValueError('Unexpected color space')
+    
+    if v.chroma_subsampling == ChromaSubsampling.CS_400.name:
+        opts += ['-p', f'Input{i}ChromaFormat=0']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_420.name:
+        opts += ['-p', f'Input{i}ChromaFormat=1']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_422.name:
+        opts += ['-p', f'Input{i}ChromaFormat=2']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_444.name:
+        opts += ['-p', f'Input{i}ChromaFormat=3']
+
+    if v.colour_primaries == ColourPrimaries.BT_709:
+        opts += ['-p', f'Input{i}ColorPrimaries=0']
+    elif v.colour_primaries == ColourPrimaries.BT_2020:
+        opts += ['-p', f'Input{i}ColorPrimaries=1']
+
     return opts
 
 
 def hdrtools_metrics(v:VariantCfg):
     ref = v.anchor.reference
-    dist = VideoSequence(v.reconstructed, **ref.metadata_dict)
+    dist = VideoSequence(v.reconstructed, **ref.properties)
     input0 = hdrtools_input(ref, ref=True, start_frame=v.anchor.start_frame)
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
     # this may be specified as an external .cfg file 

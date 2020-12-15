@@ -1,11 +1,27 @@
 {
-    "width": 1280,
-    "height": 720,
-    "chroma_format": "yuv",
-    "chroma_subsampling": "420",
-    "bitdepth": 8,
-    "fps": 30,
-    "color_space": "bt.709",
-    "transfer": null,
-    "framecount": 90
-}
+    "Sequence": {
+      "Name": "sample",
+      "URI": "./sample.yuv",
+      "md5": ""
+    },
+    "Properties": {
+      "width": 1280,
+      "height": 720,
+      "format": "yuv",
+      "packing": "interleaved",
+      "scan": "progressive",
+      "subsampling": "420",
+      "bitDepth": 8,
+      "frameRate": 30,
+      "colourPrimaries": 1,
+      "transferCharacteristics": 1,
+      "matrixCoefficients": 1,
+      "sampleAspectRatio": 1,
+      "frameCount": 30
+    },
+    "copyRight": "",
+    "Contact": {
+       "Name": "",
+       "e-mail": "sample@sequence.yuv"
+     }
+  }

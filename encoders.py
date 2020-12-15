@@ -64,13 +64,13 @@ def reference_encoder_args(variant:VariantCfg, recon=True):
     base = { "-c": f'{variant.anchor.encoder_cfg}',
         "-i": f'{variant.anchor.reference.path}',
         "-b": f'{variant.bitstream}',
-        "--FrameRate": round(variant.anchor.reference.fps) ,
+        "--FrameRate": round(variant.anchor.reference.frame_rate) ,
         "--FrameSkip": variant.anchor.start_frame ,
         "--FramesToBeEncoded": variant.anchor.frame_count ,
         "--SourceWidth": variant.anchor.reference.width ,
         "--SourceHeight": variant.anchor.reference.height ,
-        "--InputBitDepth": variant.anchor.reference.bitdepth ,
-        "--InputBitDepthC": variant.anchor.reference.bitdepth_chroma ,
+        "--InputBitDepth": variant.anchor.reference.bit_depth ,
+        "--InputBitDepthC": variant.anchor.reference.bit_depth ,
         "--InputChromaFormat": variant.anchor.reference.chroma_subsampling }
     if recon:
         base["-o"] = f'{variant.reconstructed}'
@@ -143,13 +143,13 @@ class JM(ReferenceEncoder):
         args = [ '-d', f'{v.anchor.encoder_cfg}',
             '-p', f'InputFile={v.anchor.reference.path}',
             "-p", f'OutputFile={v.bitstream}' ,
-            "-p", f'FrameRate={float(v.anchor.reference.fps)}',
+            "-p", f'FrameRate={float(v.anchor.reference.frame_rate)}',
             "-p", f'StartFrame={v.anchor.start_frame}',
             "-p", f'FramesToBeEncoded={v.anchor.frame_count}',
             "-p", f'SourceWidth={v.anchor.reference.width}',
             "-p", f'SourceHeight={v.anchor.reference.height}',
-            "-p", f'SourceBitDepthLuma={v.anchor.reference.bitdepth}',
-            "-p", f'SourceBitDepthChroma={v.anchor.reference.bitdepth_chroma}',
+            "-p", f'SourceBitDepthLuma={v.anchor.reference.bit_depth}',
+            "-p", f'SourceBitDepthChroma={v.anchor.reference.bit_depth}',
             "-p", f'InputChromaFormat={v.anchor.reference.chroma_subsampling}' ]
         
         keys = v.options.keys()
