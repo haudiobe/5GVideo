@@ -10,6 +10,10 @@ class ColourPrimaries(IntEnum):
     BT_709 = 1
     BT_2020 = 9
 
+class MatrixCoefficients(Enum):
+    BT_709 = 1
+    BT_2020 = 9
+
 class ChromaFormat(Enum):
     YUV = 'yuv'
     RGB = 'rgb'
@@ -19,7 +23,14 @@ class ChromaSubsampling(Enum):
     CS_420 = '420'
     CS_422 = '422'
     CS_444 = '444'
-    
+
+class TransferFunction(Enum):
+    BT709 = 1
+    BT2020_SDR = 14
+    BT2020_HLG = 18
+    BT2020_PQ = 16
+
+
 def from_enum(cls:Enum, value):
     for m in cls.__members__.values():
         if m.value == value:
@@ -42,7 +53,6 @@ def run_process(log:str, *cmd, dry_run=False):
                     return
 
 
-
 class VideoInfo:
 
     def __init__(self, **properties):
@@ -56,8 +66,8 @@ class VideoInfo:
         self.packing = properties.get('packing', None)
         self.scan = properties.get('scan', None)
         self.colour_primaries = from_enum(ColourPrimaries, properties.get('colourPrimaries', None))
-        self.transfer_characteristics = properties.get('transferCharacteristics', None)
-        self.matrix_coefficients = properties.get('matrixCoefficients', None)
+        self.transfer_characteristics = from_enum(TransferFunction, properties.get('transferCharacteristics', None))
+        self.matrix_coefficients = from_enum(MatrixCoefficients, properties.get('matrixCoefficients', None))
         self.sar = properties.get('sampleAspectRatio', None)
         self.is_valid_sequence()
 
@@ -73,15 +83,11 @@ class VideoInfo:
         assert self.colour_primaries in [ColourPrimaries.BT_709, ColourPrimaries.BT_2020], 'unsupported colour primaries, expected 1 or 9'
         
         if self.colour_primaries == ColourPrimaries.BT_709:
-            # cp=1, tc=1, mc=1 is BT.709
-            assert self.transfer_characteristics == 1, 'unsupported transfer characteristics for colour primaries 1'
-            assert self.matrix_coefficients == 1, 'unsupported matrix coefficient for colour primaries 1'
+            assert self.transfer_characteristics == TransferFunction.BT709, 'unsupported transfer characteristics for colour primaries 1'
+            assert self.matrix_coefficients == MatrixCoefficients.BT_709, 'unsupported matrix coefficient for colour primaries 1'
         elif self.colour_primaries == ColourPrimaries.BT_2020:
-            # cp=9, tc=14, mc=9 is BT.2020 with SDR
-            # cp=9, tc=16, mc=9 is BT.2020 with HDR PQ
-            # cp=9, tc=18, mc=9 is BT.2020 with HDR HLG
-            assert self.matrix_coefficients == 9, 'unsupported matrix coefficient for colour primaries 9'
-            assert self.transfer_characteristics in [14, 16, 18], 'unsupported transfer characteristics for colour primaries 9'
+            assert self.matrix_coefficients == MatrixCoefficients.BT_2020, 'unsupported matrix coefficient for colour primaries 9'
+            assert self.transfer_characteristics in [TransferFunction.BT2020_SDR, TransferFunction.BT2020_HLG, TransferFunction.BT2020_HLG], 'unsupported transfer characteristics for colour primaries 9'
 
     @property
     def interleaved(self):
@@ -104,8 +110,8 @@ class VideoInfo:
             "subsampling": self.chroma_subsampling.value,
             "bitDepth": self.bit_depth,
             "colourPrimaries": self.colour_primaries.value,
-            "transferCharacteristics": self.transfer_characteristics, 
-            "matrixCoefficients": self.matrix_coefficients,
+            "transferCharacteristics": self.transfer_characteristics.value,
+            "matrixCoefficients": self.matrix_coefficients.value,
             "sampleAspectRatio": self.sar
         }
 
