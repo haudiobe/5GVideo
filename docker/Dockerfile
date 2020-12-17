@@ -1,10 +1,11 @@
 FROM python:buster
 
-# expect a build-time variable
-ARG HDRTOOLS_VERSION=tags/v0.19.1
 ARG HM_VERSION=tags/HM-16.22
 ARG VTM_VERSION=tags/VTM-11.0 
 ARG JM_VERSION=tags/JM-19.0
+ARG HDRTOOLS_VERSION=tags/v0.19.1
+# build HDRTOOLS without JM_PSNR C flag
+ARG jm_psnr_undef
 
 RUN DEBIAN_FRONTEND=noninteractive \
   apt update && apt install --assume-yes --no-install-recommends \
@@ -16,6 +17,11 @@ WORKDIR /home/deps
 ## HDRtools ###
 RUN git clone https://gitlab.com/standards/HDRTools.git && \
   cd ./HDRTools && git checkout ${HDRTOOLS_VERSION}
+
+# docker build --build-arg jm_psnr_undef=1 to use this option
+COPY docker/HDRTOOLS_disable_jm_psnr.patch HDRTOOLS/HDRTOOLS_disable_jm_psnr.patch
+RUN [[ ! -z "$jm_psnr_undef" ]] && cd ./HDRTools && git apply ./HDRTOOLS_disable_jm_psnr.patch
+
 RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
   make -j
@@ -47,7 +53,8 @@ RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/JM.git && \
   && cd JM && git checkout ${JM_VERSION} 
 
 # ignoring warnings to build on linux here
-COPY docker/JM.CMakeLists.txt JM/CMakeLists.txt
+COPY docker/JM_ignore_compiler_warnings.patch JM/JM_ignore_compiler_warnings.patch
+RUN cd JM && git apply ./JM_ignore_compiler_warnings.patch
 
 RUN mkdir -p ./JM/build && cd JM/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
