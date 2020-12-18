@@ -3,6 +3,7 @@ from pathlib import Path
 import struct
 import io
 import os
+import json
 
 from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
@@ -35,6 +36,7 @@ class VariantData:
             **filtered
         }
 
+################################################################################
 
 def iter_section(f:io.FileIO, esc="-", eof_raises=True):
     l = f.readline()
@@ -182,6 +184,28 @@ def hdrtools_metrics(v:VariantCfg) -> dict:
             'MSSSIM': ( metrics["MSSSIM-R"] + metrics["MSSSIM-G"] + metrics["MSSSIM-B"] ) / 3,
             **metrics
         }
+
+
+################################################################################
+
+def vmaf_metrics(v:VariantCfg, model="version=vmaf_v0.6.1"):
+    output =  v.anchor.working_dir / f'{v.basename}.vmaf.json'
+    log = v.anchor.working_dir / f'{v.basename}.vmaf.log'
+    cmd = [
+        "vmaf",
+        "-r", f'{v.anchor.reference.path}', 
+        "-d", f'{v.reconstructed}',
+        "-w", f'{v.anchor.reference.width}',
+        "-h", f'{v.anchor.reference.height}',
+        "-p", f'{v.anchor.reference.chroma_subsampling.value}',
+        "-b", f'{v.anchor.reference.bit_depth}',
+        "--json", "-o", str(output),
+        "-m", model
+    ]
+    run_process(log, *cmd, dry_run=v.anchor.dry_run)
+    with open(output, "rb") as fp:
+        data = json.load(fp)
+        return data["pooled_metrics"]["vmaf"]["mean"]
 
 
 ################################################################################

@@ -43,8 +43,10 @@ ENV HM_DECODER=/home/deps/HM/bin/TDecoderEncoderStatic
 ## VTM ###
 RUN mkdir VTM && git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM ./VTM && \
   cd ./VTM && git checkout ${VTM_VERSION}
+
 RUN mkdir -p ./VTM/build && cd ./VTM/build && \
-  cmake .. -DCMAKE_BUILD_TYPE=Release && \
+  ln -s /home/deps/HDRTools/common /home/deps/VTM/souce/Lib/HDRLib && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DEXTENSION_HDRTOOLS=on && \
   make -j
 
 ENV VTM_ENCODER=/home/deps/VTM/bin/EncoderAppStatic

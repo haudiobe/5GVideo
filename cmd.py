@@ -6,7 +6,7 @@ import json
 
 from anchor import AnchorTuple, VariantCfg, md5_checksum
 from encoders import get_encoder
-from metrics import VariantData, hdrtools_metrics, bd_q
+from metrics import VariantData, hdrtools_metrics, vmaf_metrics, bd_q
 
 from typing import List, Iterable
 
@@ -56,9 +56,19 @@ def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
 
 def compute_variant_metrics(variant:VariantCfg) -> VariantData:
     metrics = hdrtools_metrics(variant)
+    if variant.anchor.start_frame == 0:
+        # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
+        # 'enable_transform' (aka --phone-model)
+        # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
+        # and: https://github.com/Netflix/vmaf/blob/master/python/vmaf/script/run_vmaf.py#L80
+        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
+        metrics["VMAF"] = vmaf_metrics(variant, mdl) # TBD. VMAF metric should come with a model definition
+    else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
+        metrics["VMAF"] = None
+
     if variant.anchor.dry_run:
         return
-    metrics["VMAF"] = None
+
     # Note: SEI data may be present/missing in the bitstream depending on the encoder configuration
     avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / variant.anchor.duration)
     data = VariantData(variant.variant_id, avg_bitrate, metrics)
