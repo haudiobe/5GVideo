@@ -45,7 +45,7 @@ RUN mkdir VTM && git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM 
   cd ./VTM && git checkout ${VTM_VERSION}
 
 RUN mkdir -p ./VTM/build && cd ./VTM/build && \
-  ln -s /home/deps/HDRTools/common /home/deps/VTM/souce/Lib/HDRLib && \
+  ln -s /home/deps/HDRTools/common /home/deps/VTM/source/Lib/HDRLib && \
   cmake .. -DCMAKE_BUILD_TYPE=Release -DEXTENSION_HDRTOOLS=on && \
   make -j
 
