@@ -118,22 +118,29 @@ class VideoInfo:
 
 class VideoSequence(VideoInfo):
     
-    def __init__(self, filename:str, **properties):
+    def __init__(self, filename:str, contact:dict = None, copyright:str = None, **properties):
         self.path = Path(filename).resolve()
+        self.contact = contact
+        self.copyright = copyright
         super().__init__(**properties)
 
     @staticmethod
     def from_sidecar_metadata(metadata:Path):
+        # https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
+        # conformance checking is purposefully loose here, 
+        # a strict parser/generator can be easily generated for various languages, using eg. https://github.com/quicktype/quicktype
         try:
             with open(metadata, 'r') as reader:
-                sequence_metadata = json.load(reader)
-                assert 'Sequence' in sequence_metadata, "Sequence not specified in metadata"
-                assert 'URI' in sequence_metadata['Sequence'], "sequence URI not specified in metadata"
+                data = json.load(reader)
+                assert 'Sequence' in data, "Sequence not specified in metadata"
+                assert 'URI' in data['Sequence'], "sequence URI not specified in metadata"
                 # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
-                raw_sequence = Path(metadata).parent / Path(sequence_metadata['Sequence']['URI'])
-                assert ('Properties' in sequence_metadata) and type(sequence_metadata['Properties']) == dict, 'invalid sequence description'
-                props = sequence_metadata['Properties']
-                return VideoSequence(raw_sequence, **props)
+                raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
+                assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'
+                props = data['Properties']
+                contact = data.get('Contact', None )
+                cc = data.get('copyRight', None )
+                return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
         except FileNotFoundError:
             raise Exception(f'missing sidecar metadata for {raw_sequence}')
             

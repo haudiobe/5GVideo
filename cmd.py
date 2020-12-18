@@ -37,7 +37,9 @@ def save_variant_result(v:VariantCfg, m:VariantData):
                 "log-file": str(v.decoder_log),
                 "md5": reconstruction_md5
             },
-            "Metrics": metrics
+            "Metrics": metrics,
+            "copyRight": v.anchor.reference.copyright if v.anchor.reference.copyright != None else "all rights reserved",
+            "Contact": v.anchor.reference.contact if v.anchor.reference.contact != None else { "Name": "", "email": "" }
         }
 
         fp = v.anchor.working_dir / f'{v.basename}.json'
@@ -138,8 +140,6 @@ def main():
     if decode and not encode:
         decode_anchor(anchor)
     
-    data = None
-
     if metrics:
         csv_data = compute_anchor_metrics(anchor)
         if anchor.dry_run:
