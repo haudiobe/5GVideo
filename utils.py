@@ -2,9 +2,39 @@ import os
 import subprocess
 import json
 from pathlib import Path
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import List
 from fractions import Fraction
+
+class ColourPrimaries(IntEnum):
+    BT_709 = 1
+    BT_2020 = 9
+
+class MatrixCoefficients(Enum):
+    BT_709 = 1
+    BT_2020 = 9
+
+class ChromaFormat(Enum):
+    YUV = 'yuv'
+    RGB = 'rgb'
+
+class ChromaSubsampling(Enum):
+    CS_400 = '400'
+    CS_420 = '420'
+    CS_422 = '422'
+    CS_444 = '444'
+
+class TransferFunction(Enum):
+    BT709 = 1
+    BT2020_SDR = 14
+    BT2020_HLG = 18
+    BT2020_PQ = 16
+
+
+def from_enum(cls:Enum, value):
+    for m in cls.__members__.values():
+        if m.value == value:
+            return m
 
 def run_process(log:str, *cmd, dry_run=False):
     if dry_run:
@@ -25,48 +55,92 @@ def run_process(log:str, *cmd, dry_run=False):
 
 class VideoInfo:
 
-    def __init__(self, width:int=None, height:int=None, chroma_format:str=None, chroma_subsampling:str=None, bitdepth:int=None, bitdepth_chroma:int=None, fps:int=None, framecount:int=None, color_space:str=None, transfer:dict=None):
-        self.width = width
-        self.height = height
-        self.chroma_format = chroma_format
-        self.chroma_subsampling = chroma_subsampling
-        self.bitdepth = bitdepth
-        self.bitdepth_chroma = bitdepth if bitdepth_chroma is None else bitdepth_chroma
-        self.fps = fps
-        self.framecount = framecount
-        self.color_space = color_space
-        self.transfer = transfer
+    def __init__(self, **properties):
+        self.width = properties.get('width', None)
+        self.height = properties.get('height', None)
+        self.chroma_format = from_enum(ChromaFormat, properties.get('format', None))
+        self.chroma_subsampling = from_enum(ChromaSubsampling, properties.get('subsampling', None))
+        self.bit_depth = properties.get('bitDepth', None)
+        self.frame_rate = properties.get('frameRate', None)
+        self.frame_count = properties.get('frameCount', None)
+        self.packing = properties.get('packing', None)
+        self.scan = properties.get('scan', None)
+        self.colour_primaries = from_enum(ColourPrimaries, properties.get('colourPrimaries', None))
+        self.transfer_characteristics = from_enum(TransferFunction, properties.get('transferCharacteristics', None))
+        self.matrix_coefficients = from_enum(MatrixCoefficients, properties.get('matrixCoefficients', None))
+        self.sar = properties.get('sampleAspectRatio', None)
+        self.is_valid_sequence()
+
+    def is_valid_sequence(self):
+        assert self.width != None and type(self.width) == int, f'invalid width: {self.width}'
+        assert self.height != None and type(self.height) == int, f'invalid height: {self.height}'
+        assert self.chroma_format in [ChromaFormat.YUV, ChromaFormat.RGB], f'invalid chroma format: {self.chroma_format}'
+        # should just use booleans for interleaved/interlaced
+        assert self.packing in ['planar', 'interleaved'], f'invalid packing: {self.packing}'
+        assert self.scan in ['progressive', 'interlaced'], f'invalid scan: {self.scan}'
+        assert self.chroma_subsampling in [ChromaSubsampling.CS_400, ChromaSubsampling.CS_420, ChromaSubsampling.CS_422, ChromaSubsampling.CS_444], f'invalid subsampling: {self.chroma_subsampling}'
+        assert self.bit_depth in [8, 10, 12, 16], f'invalid bitdepth: {self.bit_depth}'
+        assert self.colour_primaries in [ColourPrimaries.BT_709, ColourPrimaries.BT_2020], 'unsupported colour primaries, expected 1 or 9'
+        
+        if self.colour_primaries == ColourPrimaries.BT_709:
+            assert self.transfer_characteristics == TransferFunction.BT709, 'unsupported transfer characteristics for colour primaries 1'
+            assert self.matrix_coefficients == MatrixCoefficients.BT_709, 'unsupported matrix coefficient for colour primaries 1'
+        elif self.colour_primaries == ColourPrimaries.BT_2020:
+            assert self.matrix_coefficients == MatrixCoefficients.BT_2020, 'unsupported matrix coefficient for colour primaries 9'
+            assert self.transfer_characteristics in [TransferFunction.BT2020_SDR, TransferFunction.BT2020_HLG, TransferFunction.BT2020_HLG], 'unsupported transfer characteristics for colour primaries 9'
 
     @property
-    def duration(self):
-        return self.framecount * self.fps
+    def interleaved(self):
+        return self.packing == 'interleaved'
 
     @property
-    def pixfmt(self):
-        return f'{self.chroma_format}{self.chroma_subsampling}'
+    def interlaced(self):
+        return self.scan == 'interlaced'
 
-    def to_json_dict(self):
-        return self.__dict__
+    @property
+    def properties(self):
+        return {
+            "width": self.width,
+            "height": self.height,
+            "frameRate": self.frame_rate,
+            "frameCount": self.frame_count,
+            "format": self.chroma_format.value,
+            "packing": self.packing,
+            "scan": self.scan,
+            "subsampling": self.chroma_subsampling.value,
+            "bitDepth": self.bit_depth,
+            "colourPrimaries": self.colour_primaries.value,
+            "transferCharacteristics": self.transfer_characteristics.value,
+            "matrixCoefficients": self.matrix_coefficients.value,
+            "sampleAspectRatio": self.sar
+        }
 
 
 class VideoSequence(VideoInfo):
     
-    def __init__(self, filename:str, **video_info):
+    def __init__(self, filename:str, contact:dict = None, copyright:str = None, **properties):
         self.path = Path(filename).resolve()
-        super().__init__(**video_info)
-    
-    @property
-    def metadata_dict(self):
-        md = super().to_json_dict().copy()
-        del md['path']
-        return md
+        self.contact = contact
+        self.copyright = copyright
+        super().__init__(**properties)
 
     @staticmethod
-    def with_sidecar_metadata(raw_sequence:Path):
-        sidecar = raw_sequence.parent / f'{raw_sequence.stem}.json'
+    def from_sidecar_metadata(metadata:Path):
+        # https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
+        # conformance checking is purposefully loose here, 
+        # a strict parser/generator can be easily generated for various languages, using eg. https://github.com/quicktype/quicktype
         try:
-            with open(sidecar, 'r') as reader:
-                meta = json.load(reader)
-                return VideoSequence(raw_sequence, **meta)
+            with open(metadata, 'r') as reader:
+                data = json.load(reader)
+                assert 'Sequence' in data, "Sequence not specified in metadata"
+                assert 'URI' in data['Sequence'], "sequence URI not specified in metadata"
+                # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
+                raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
+                assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'
+                props = data['Properties']
+                contact = data.get('Contact', None )
+                cc = data.get('copyRight', None )
+                return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
         except FileNotFoundError:
             raise Exception(f'missing sidecar metadata for {raw_sequence}')
+            

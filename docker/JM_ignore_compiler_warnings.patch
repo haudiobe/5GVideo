@@ -1,0 +1,52 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b7b57f3..025adb6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -70,26 +70,27 @@ endif()
+ # bb_enable_warnings( gcc -Wno-unused-variable )
+ # bb_enable_warnings( gcc-4.8 warnings-as-errors -Wno-unused-variable )
+ # for gcc 8.2:
+-bb_enable_warnings( gcc warnings-as-errors -Wno-sign-compare)
+-bb_enable_warnings( gcc-5 -fno-strict-overflow -Wno-strict-aliasing)
+-bb_enable_warnings( gcc-7 -fno-strict-overflow -Wno-strict-aliasing)
+-
+-if( XCODE )
+-  bb_enable_warnings( clang warnings-as-errors
+-                            -Wno-deprecated-declarations
+-                            -Wno-unknown-attributes
+-                            -Wno-deprecated-register
+-                            -Wno-pessimizing-move
+-                            -Wno-absolute-value
+-                            -Wno-unused-const-variable )
+-else()
+-  bb_enable_warnings( clang warnings-as-errors
+-                            -Wno-unknown-attributes
+-                            -Wno-deprecated-register
+-                            -Wno-pessimizing-move
+-                            -Wno-absolute-value
+-                            -Wno-unused-const-variable )
+-endif()
++# bb_enable_warnings( gcc warnings-as-errors -Wno-sign-compare)
++# bb_enable_warnings( gcc-5 -fno-strict-overflow -Wno-strict-aliasing)
++# bb_enable_warnings( gcc-7 -fno-strict-overflow -Wno-strict-aliasing)
++# bb_enable_warnings( gcc-7 -fno-strict-overflow -Wno-strict-aliasing)
++
++# if( XCODE )
++#   bb_enable_warnings( clang warnings-as-errors
++#                             -Wno-deprecated-declarations
++#                             -Wno-unknown-attributes
++#                             -Wno-deprecated-register
++#                             -Wno-pessimizing-move
++#                             -Wno-absolute-value
++#                             -Wno-unused-const-variable )
++# else()
++#   bb_enable_warnings( clang warnings-as-errors
++#                             -Wno-unknown-attributes
++#                             -Wno-deprecated-register
++#                             -Wno-pessimizing-move
++#                             -Wno-absolute-value
++#                             -Wno-unused-const-variable )
++# endif()
+ #bb_enable_warnings( clang warnings-as-errors )
+ 
+ # enable warnings

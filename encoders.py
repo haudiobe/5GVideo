@@ -5,8 +5,8 @@ import re
 from typing import List, Callable
 import subprocess
 from abc import ABC, abstractmethod
-from utils import VideoInfo, run_process
-from anchor import AnchorCfg, VariantCfg
+from utils import run_process, VideoInfo, ChromaFormat, ChromaSubsampling
+from anchor import VariantCfg
 
 __encoders__ = {}
 
@@ -19,7 +19,7 @@ class ReferenceEncoder(ABC):
     @staticmethod
     def decode_variant(cfg:VariantCfg, **kwargs):
         raise NotImplementedError()
-
+    
 
 def register_encoder(cls:ReferenceEncoder):
     """
@@ -57,23 +57,25 @@ def get_env(var:str):
         raise Exception(f'environment variable not set {var}')
     return v
 
+
 def reference_encoder_args(variant:VariantCfg, recon=True):
     """
     HM & VTM softwares share a common set of options
     """
     base = { "-c": f'{variant.anchor.encoder_cfg}',
-        "-i": f'{variant.anchor.reference.path}',
-        "-b": f'{variant.bitstream}',
-        "--FrameRate": round(variant.anchor.reference.fps) ,
+        "--InputFile": f'{variant.anchor.reference.path}',
+        "--BitstreamFile": f'{variant.bitstream}',
+        "--FrameRate": round(variant.anchor.reference.frame_rate) ,
         "--FrameSkip": variant.anchor.start_frame ,
         "--FramesToBeEncoded": variant.anchor.frame_count ,
         "--SourceWidth": variant.anchor.reference.width ,
         "--SourceHeight": variant.anchor.reference.height ,
-        "--InputBitDepth": variant.anchor.reference.bitdepth ,
-        "--InputBitDepthC": variant.anchor.reference.bitdepth_chroma ,
-        "--InputChromaFormat": variant.anchor.reference.chroma_subsampling }
+        "--InputBitDepth": variant.anchor.reference.bit_depth ,
+        "--InputBitDepthC": variant.anchor.reference.bit_depth ,
+        "--InputChromaFormat": variant.anchor.reference.chroma_subsampling.value }
+    
     if recon:
-        base["-o"] = f'{variant.reconstructed}'
+        base["--ReconFile"] = f'{variant.reconstructed}'
     return [ *_to_cli_args(base), *_to_cli_args(variant.options) ]
 
 
@@ -82,6 +84,10 @@ class HM(ReferenceEncoder):
     
     encoder_id = "HM"
 
+    @classmethod
+    def get_config_dict(cls, v:VariantCfg) -> dict:
+        pass
+    
     @staticmethod
     def encode_variant(v:VariantCfg, recon=True, **opts):
         encoder = get_env("HM_ENCODER")
@@ -99,6 +105,7 @@ class HM(ReferenceEncoder):
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
         run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
         return logfile
+
 
 
 @register_encoder
@@ -135,40 +142,40 @@ class JM(ReferenceEncoder):
     def encode_variant(v:VariantCfg, recon=True, **opts):
         encoder = get_env("JM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        """
-        # 3.1 Encoder Syntax
-        lencod [-h] [-d defenc.cfg] {[-f curenc1.cfg]...[-f curencN.cfg]}
-                {[-p EncParam1=EncValue1]...[-p EncParamM=EncValueM]}
-        """
-        args = [ '-d', f'{v.anchor.encoder_cfg}',
-            '-p', f'InputFile={v.anchor.reference.path}',
-            "-p", f'OutputFile={v.bitstream}' ,
-            "-p", f'FrameRate={float(v.anchor.reference.fps)}',
+        tracefile = v.anchor.working_dir / f'{v.basename}.enc.trace.txt'
+        statsfile = v.anchor.working_dir / f'{v.basename}.enc.stats.dat'
+        args = [ "-p", "DisplayEncParams=1",
+            '-d', f'{v.anchor.encoder_cfg}',
+            "-p", f'TraceFile={tracefile}',
+            "-p", f'StatsFile={statsfile}',
+            "-p", f'InputFile={v.anchor.reference.path}',
+            "-p", f'OutputFile={v.bitstream}',
+            "-p", f'FrameRate={float(v.anchor.reference.frame_rate)}',
             "-p", f'StartFrame={v.anchor.start_frame}',
             "-p", f'FramesToBeEncoded={v.anchor.frame_count}',
             "-p", f'SourceWidth={v.anchor.reference.width}',
             "-p", f'SourceHeight={v.anchor.reference.height}',
-            "-p", f'SourceBitDepthLuma={v.anchor.reference.bitdepth}',
-            "-p", f'SourceBitDepthChroma={v.anchor.reference.bitdepth_chroma}',
-            "-p", f'InputChromaFormat={v.anchor.reference.chroma_subsampling}' ]
+            "-p", f'OutputWidth={v.anchor.reference.width}',
+            "-p", f'OutputHeight={v.anchor.reference.height}',
+            "-p", f'SourceBitDepthLuma={v.anchor.reference.bit_depth}',
+            "-p", f'SourceBitDepthChroma={v.anchor.reference.bit_depth}',
+        ]
+
+        if v.anchor.reference.interleaved:
+            args += ["-p", "Interleaved=1"]
+
+        if v.anchor.reference.chroma_format == ChromaFormat.RGB:
+            args += ["-p", 'RGBInput=1', "-p", 'StandardRange=1'] # 1 = full range
+        else:
+            args += ["-p", 'RGBInput=0', "-p", 'StandardRange=0']
         
-        keys = v.options.keys()
-        if "Interleaved" not in keys:
-            args += ["-p", "Interleaved=0"]
-        if "RGBInput" not in keys:
-            args += ["-p", 'RGBInput=0']
-        if "StandardRange" not in keys:
-            args += ["-p", 'StandardRange=0']
-        if "VideoCode" not in keys:
-            args += ["-p", 'VideoCode=1']
-        
-        if v.anchor.reference.chroma_subsampling == "400":
+        if v.anchor.reference.chroma_subsampling == ChromaSubsampling.CS_400:
             args += ["-p", f'YUVFormat=0']
-        elif v.anchor.reference.chroma_subsampling == "420":
+        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_420:
             args += ["-p", f'YUVFormat=1']
-        elif v.anchor.reference.chroma_subsampling == "422":
+        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_422:
             args += ["-p", f'YUVFormat=2']
-        elif v.anchor.reference.chroma_subsampling == "444":
+        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_444:
             args += ["-p", f'YUVFormat=3']
         
         if recon:

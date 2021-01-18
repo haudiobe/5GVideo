@@ -2,12 +2,50 @@
 import sys
 import os
 import csv
+import json
 
-from anchor import AnchorCfg, VariantCfg, md5_checksum
+from anchor import AnchorTuple, VariantCfg, md5_checksum
 from encoders import get_encoder
-from metrics import VariantData, hdrtools_metrics, bd_q
+from metrics import VariantData, hdrtools_metrics, vmaf_metrics, bd_q
 
 from typing import List, Iterable
+
+def save_variant_result(v:VariantCfg, m:VariantData):
+        
+        assert v.bitstream.exists(), "bitstream file not found"
+        assert v.reconstructed.exists(), "reconsturcted file not found"
+        bitstream_md5 = md5_checksum(v.bitstream)
+        reconstruction_md5 = md5_checksum(v.reconstructed)
+        metrics = m.to_dict()
+        metrics.pop("Key", None)
+        meta = {
+            "Bitstream": {
+                "URI": str(v.bitstream),
+                "md5": bitstream_md5,
+                "key": v.variant_id,
+                "codecs": v.anchor.codecs
+            },
+            "Generation": {
+                "sequence": str(v.anchor.reference.path),
+                "encoder": v.anchor.encoder_id,
+                "config-file": str(v.anchor.encoder_cfg),
+                "config-variant": v.options,
+                "log-file": str(v.encoder_log)
+            },
+            "Reconstruction": {
+                "decoder": v.anchor.encoder_id,
+                "log-file": str(v.decoder_log),
+                "md5": reconstruction_md5
+            },
+            "Metrics": metrics,
+            "copyRight": v.anchor.reference.copyright if v.anchor.reference.copyright != None else "all rights reserved",
+            "Contact": v.anchor.reference.contact if v.anchor.reference.contact != None else { "Name": "", "email": "" }
+        }
+
+        fp = v.anchor.working_dir / f'{v.basename}.json'
+        with open(fp, 'w') as fo:
+            json.dump(meta, fo, sort_keys=True, indent=4)
+
 
 def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
     with open(fout, 'w', newline='') as csvfile:
@@ -17,50 +55,48 @@ def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
             writer.writerow(row)
 
 def compute_variant_metrics(variant:VariantCfg) -> VariantData:
-    data = hdrtools_metrics(variant)
+    metrics = hdrtools_metrics(variant)
+    if variant.anchor.start_frame == 0:
+        # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
+        # 'enable_transform' (aka --phone-model)
+        # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
+        # and: https://github.com/Netflix/vmaf/blob/master/python/vmaf/script/run_vmaf.py#L80
+        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
+        metrics["VMAF"] = vmaf_metrics(variant, mdl) # TBD. VMAF metric should come with a model definition
+    else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
+        metrics["VMAF"] = None
+
     if variant.anchor.dry_run:
         return
-    duration = variant.anchor.frame_count * variant.anchor.reference.duration / variant.anchor.reference.framecount
-    avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / duration)
-    to_dict = lambda keys, data : { k:v for k,v in zip(keys, data) }
-    return VariantData(variant.basename, avg_bitrate, **to_dict(data['metrics'], data['avg']))
 
-def compute_anchor_metrics(anchor:AnchorCfg):
+    # Note: SEI data may be present/missing in the bitstream depending on the encoder configuration
+    avg_bitrate = int(os.path.getsize(variant.bitstream) * 8 / variant.anchor.duration)
+    data = VariantData(variant.variant_id, avg_bitrate, metrics)
+    save_variant_result(variant, data)
+    return data
+
+def compute_anchor_metrics(anchor:AnchorTuple):
     data = [compute_variant_metrics(v) for v in anchor.variants]
     if len(data) == 0 or anchor.dry_run:
         return
-    keys = data[0].data.keys()
-    to_csv(f'{anchor.working_dir / anchor.basename}.csv', keys, [m.data for m in data])
-    return data
+    keys = data[0].get_keys()
+    anchor_tupple = f'{anchor.working_dir / anchor.basename}.csv'
+    to_csv(anchor_tupple, keys, [m.to_dict() for m in data])
+    return anchor_tupple
 
-def encode_anchor(anchor:AnchorCfg, recon=True):
+def encode_anchor(anchor:AnchorTuple, recon=True):
     enc = get_encoder(anchor.encoder_id)
     if enc == None:
         raise Exception(f'unknown encoder: {anchor.encoder_id}')
     for var in anchor.variants:
         enc.encode_variant(var, recon=recon)
 
-def decode_anchor(anchor:AnchorCfg):
+def decode_anchor(anchor:AnchorTuple):
     enc = get_encoder(anchor.encoder_id)
     if enc == None:
         raise Exception(f'unknown encoder: {anchor.encoder_id}')
     for var in anchor.variants:
         enc.decode_variant(var)
-
-def md5_reconstucted(anchor:AnchorCfg):
-    for var in anchor.variants:
-        h = md5_checksum(var.reconstructed)
-        p = var.reconstructed.parent / f'{var.reconstructed.stem}.yuv.md5'
-        with p.open('w') as f:
-            f.write(h)
-
-def md5_bitstream(anchor:AnchorCfg):
-    for var in anchor.variants:
-        h = md5_checksum(var.bitstream)
-        p = var.bitstream.parent / f'{var.bitstream.stem}.md5'
-        with p.open('w') as f:
-            f.write(h)
-
 
 def man():
     h = """
@@ -75,16 +111,16 @@ def man():
 
 def parse_args():
     if len(sys.argv) <= 1:
-        return None, False, False, False
+        return None, False, False, False, False
 
     if not os.path.exists(sys.argv[1]):
         print(f'config file not found {sys.argv[1]}')
-        return None, False, False, False
+        return None, False, False, False, False
     
     cfg = sys.argv[1]
 
     if len(sys.argv) == 2:
-        return cfg, True, True, True
+        return cfg, True, True, True, False
 
     encode = "encode" in sys.argv
     decode = "decode" in sys.argv
@@ -105,27 +141,20 @@ def main():
         man()
         return
     
-    anchor = AnchorCfg.load(cfg)
+    anchor = AnchorTuple.load(cfg)
     anchor.dry_run = dry_run
 
     if encode:
         encode_anchor(anchor, recon=decode)
-        md5_bitstream(anchor)
 
     if decode and not encode:
         decode_anchor(anchor)
-
-    if decode:
-        md5_reconstucted(anchor)
     
-    data = None
-
     if metrics:
-        data = compute_anchor_metrics(anchor)
+        csv_data = compute_anchor_metrics(anchor)
         if anchor.dry_run:
             return
-        for var in data:
-            print(var.to_string())
+        print(f'\n\nanchor tupple metrics saved to: {csv_data}')
 
 if __name__ == "__main__":
     main()

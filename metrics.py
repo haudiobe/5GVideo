@@ -3,12 +3,40 @@ from pathlib import Path
 import struct
 import io
 import os
+import json
 
-from utils import VideoSequence
+from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
-from anchor import AnchorCfg, VariantCfg
-
+from anchor import VariantCfg
 from utils import run_process
+
+class VariantData:
+
+    required = ["PSNR", "PSNR-Y", "MSSSIM", "VMAF"]
+
+    def __init__(self, variant_id:str, avg_bitrate:float, metrics:dict):
+        self.variant_id = variant_id
+        self.avg_bitrate = avg_bitrate
+        for m in self.required:
+            assert m in metrics, f'missing required metric {m}'
+        self.metrics = metrics
+
+    def get_keys(self):
+        return [
+            "Key",
+            "Bitrate",
+            *self.required
+        ]
+
+    def to_dict(self):
+        filtered = { m: self.metrics[m] for m in self.required }
+        return {
+            "Key": self.variant_id,
+            "Bitrate": self.avg_bitrate,
+            **filtered
+        }
+
+################################################################################
 
 def iter_section(f:io.FileIO, esc="-", eof_raises=True):
     l = f.readline()
@@ -40,68 +68,94 @@ def read_log(f, stats={}):
     stats['perfs'] = "".join([*iter_section(f)])
     return stats
 
-def reduce_log(raw):
+def parse_metrics(log):
+    raw_data = None
+    p = Path(log).resolve()
+    with open(p, 'r') as f:
+        raw_data = read_log(f)
+    assert raw_data != None, f'failed to parse {p}'
     parse_hex = lambda indices, values: [struct.unpack('!d', bytes.fromhex(values[i]))[0] for i in indices]
     parse_frames = lambda indices, frames: [[f[0], *parse_hex(indices, f)] for f in frames]
-    indices, metrics = zip(*[(i, h[3:]) for i, h in enumerate(raw['metrics']) if str(h).startswith('hex')])
+    indices, metrics = zip(*[(i, h[3:]) for i, h in enumerate(raw_data['metrics']) if str(h).startswith('hex')])
     return {
         'metrics': metrics,
-        'avg': parse_hex(indices, raw['avg']),
-        'min': parse_hex(indices, raw['min']),
-        'max': parse_hex(indices, raw['max']),
-        'frames': [['frame', *metrics], *parse_frames(indices, raw['frames'])]
+        'avg': parse_hex(indices, raw_data['avg']),
+        'min': parse_hex(indices, raw_data['min']),
+        'max': parse_hex(indices, raw_data['max']),
+        'frames': [['frame', *metrics], *parse_frames(indices, raw_data['frames'])]
     }
 
-def parse_metrics(log):
-    metrics = {}
-    with open(Path(log), 'r') as f:
-        metrics = read_log(f, metrics)
-    return reduce_log(metrics)
-
-def hdrtools_input(v:VideoSequence, ref=True, start_frame=0):
+def hdrtools_input(v:VideoSequence, ref=True, start_frame=0, file_header=0):
     i = 0 if ref else 1
     opts = [
         '-p', f'Input{i}File={v.path}',
         '-p', f'Input{i}Width={v.width}',
         '-p', f'Input{i}Height={v.height}',
-        '-p', f'Input{i}BitDepthCmp0={v.bitdepth}',
-        '-p', f'Input{i}BitDepthCmp1={v.bitdepth_chroma}',
-        '-p', f'Input{i}BitDepthCmp2={v.bitdepth_chroma}',
+        '-p', f'Input{i}BitDepthCmp0={v.bit_depth}',
+        '-p', f'Input{i}BitDepthCmp1={v.bit_depth}',
+        '-p', f'Input{i}BitDepthCmp2={v.bit_depth}',
         '-p', f'Input{i}StartFrame={start_frame}',
-        '-p', f'Input{i}FileHeader={0}',
-        '-p', f'Input{i}StartFrame={0}',
-        '-p', f'Input{i}Rate={v.fps}',
-        '-p', f'Input{i}Interleaved={0}', # Planar YUV
-        '-p', f'Input{i}Interlaced={0}',
-        '-p', f'Input{i}ColorSpace=0', # 0:CM_YCbCr, 1:CM_RGB, 2:CM_XYZ
-        # '-p', f'Input{i}SampleRange={0}'
-        # '-p', f'Input{i}FourCCCode={0}'
+        '-p', f'Input{i}FileHeader={file_header}',
+        '-p', f'Input{i}Rate={v.frame_rate}',
+        '-p', f'Input{i}SampleRange=0', # SR_STANDARD is HDRMetrics' default, (16-235)*k
+        # '-p', f'Input{i}FourCCCode={0}' # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
     ]
+    
+    if v.interleaved:
+        opts += ['-p', f'Input{i}Interleaved=0']
+    else:
+        opts += ['-p', f'Input{i}Interleaved=1']
 
-    cf = { '400': 0, '420': 1, '422': 2, '444': 3 }
-    opts += ['-p', f'Input{i}ChromaFormat={cf.get(v.chroma_subsampling, 1)}']
+    if v.interlaced:
+        opts += ['-p', f'Input{i}Interlaced=0']
+    else:
+        opts += ['-p', f'Input{i}Interlaced=1']
 
-    cs = { 'bt.709':0, 'bt.2020':1, 'bt.p3d60':2, 'bt.p3d65': 3 }
-    opts += ['-p', f'Input{i}ColorPrimaries={cs.get(v.color_space, 4)}']
+    if v.chroma_format == ChromaFormat.YUV:
+        opts += ['-p', f'Input{i}ColorSpace=0'] # 0:CM_YCbCr
+    elif v.chroma_format == ChromaFormat.RGB:
+        opts += ['-p', f'Input{i}ColorSpace=1'] # 1:CM_RGB
+    else:
+        # out of scope
+        raise ValueError('Unexpected color space')
+    
+    if v.chroma_subsampling == ChromaSubsampling.CS_400:
+        opts += ['-p', f'Input{i}ChromaFormat=0']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_420:
+        opts += ['-p', f'Input{i}ChromaFormat=1']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_422:
+        opts += ['-p', f'Input{i}ChromaFormat=2']
+    elif v.chroma_subsampling == ChromaSubsampling.CS_444:
+        opts += ['-p', f'Input{i}ChromaFormat=3']
+
+    if v.colour_primaries == ColourPrimaries.BT_709:
+        opts += ['-p', f'Input{i}ColorPrimaries=0']
+    elif v.colour_primaries == ColourPrimaries.BT_2020:
+        opts += ['-p', f'Input{i}ColorPrimaries=1']
+
     return opts
 
 
-def hdrtools_metrics(v:VariantCfg):
+def hdrtools_metrics(v:VariantCfg) -> dict:
+
     ref = v.anchor.reference
-    dist = VideoSequence(v.reconstructed, **ref.metadata_dict)
+    # PQ content metrics to be parsed from VTM encoder log
+    assert ref.transfer_characteristics != TransferFunction.BT2020_PQ, 'unsupported transfer function'
+
+    dist = VideoSequence(v.reconstructed, **ref.properties)
     input0 = hdrtools_input(ref, ref=True, start_frame=v.anchor.start_frame)
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
-    # this may be specified as an external .cfg file 
     run = [
-        '-p', f'EnablehexMetric=1',
-        '-p', f'EnablePSNR=1',
-        '-p', f'EnableShowMSE=1',
+        '-p', f'EnablehexMetric=1', # the parser collects hex values only
         '-p', f'EnableJVETPSNR=1',
+        '-p', f'EnableShowMSE=1',
+        '-p', f'EnablePSNR=1',
         '-p', f'EnableSSIM=1',
         '-p', f'EnableMSSSIM=1',
         '-p', f'SilentMode=0',
         '-p', f'NumberOfFrames={v.anchor.frame_count}'
     ]
+
     log = dist.path.parent / 'distortion.txt'
     run += ['-p', f'LogFile={log}']
 
@@ -111,22 +165,51 @@ def hdrtools_metrics(v:VariantCfg):
     log = dist.path.parent / f'{dist.path.stem}.metrics.log'
     run_process(log, *cmd, dry_run=v.anchor.dry_run)
     if v.anchor.dry_run:
-        return
-    return parse_metrics(log)
-
-
-def avg(seq:list, *keys) -> dict:
-    avg = { k: 0 for k in keys }
-    c = len(seq)
-    if c == 0:
-        print("empty dataset. the sequence may be too short.")
         return {}
-    for f in seq :
-        for k in keys:
-            avg[k] += f[k]
-    for k in keys:
-        avg[k] = avg[k] / c
-    return avg
+    
+    data = parse_metrics(log)
+    metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
+    
+    if v.anchor.reference.chroma_format == ChromaFormat.YUV:
+        return {
+            'PSNR': ((6 * metrics["PSNR-Y"]) + metrics["PSNR-U"] + metrics["PSNR-V"]) / 8,
+            'SSIM': ((6 * metrics["SSIM-Y"]) + metrics["SSIM-U"] + metrics["SSIM-V"]) / 8,
+            'MSSSIM': ((6 * metrics["MSSSIM-Y"]) + metrics["MSSSIM-U"] + metrics["MSSSIM-V"]) / 8,
+            **metrics
+        }
+    elif v.anchor.reference.chroma_format == ChromaFormat.RGB:
+        return {
+            'PSNR': ( metrics["PSNR-R"] + metrics["PSNR-G"] + metrics["PSNR-B"] ) / 3,
+            'SSIM': ( metrics["SSIM-R"] + metrics["SSIM-G"] + metrics["SSIM-B"] ) / 3,
+            'MSSSIM': ( metrics["MSSSIM-R"] + metrics["MSSSIM-G"] + metrics["MSSSIM-B"] ) / 3,
+            **metrics
+        }
+
+
+################################################################################
+
+def vmaf_metrics(v:VariantCfg, model="version=vmaf_v0.6.1"):
+    output =  v.anchor.working_dir / f'{v.basename}.vmaf.json'
+    log = v.anchor.working_dir / f'{v.basename}.vmaf.log'
+    cmd = [
+        "vmaf",
+        "-r", f'{v.anchor.reference.path}', 
+        "-d", f'{v.reconstructed}',
+        "-w", f'{v.anchor.reference.width}',
+        "-h", f'{v.anchor.reference.height}',
+        "-p", f'{v.anchor.reference.chroma_subsampling.value}',
+        "-b", f'{v.anchor.reference.bit_depth}',
+        "--json", "-o", str(output),
+        "-m", model
+    ]
+    run_process(log, *cmd, dry_run=v.anchor.dry_run)
+    with open(output, "rb") as fp:
+        data = json.load(fp)
+        return data["pooled_metrics"]["vmaf"]["mean"]
+
+
+################################################################################
+
 
 def bd_q(RA, QA, RT, QT, piecewise=0):
     import numpy as np
@@ -163,26 +246,4 @@ def bd_q(RA, QA, RT, QT, piecewise=0):
     # find avg diff
     avg_diff = (int2-int1)/(max_int-min_int)
     return avg_diff
-
-
-class VariantData:
-
-    def __init__(self, variant_id:str, avg_bitrate:float, **metrics):
-        self.variant_id = variant_id
-        self.avg_bitrate = avg_bitrate
-        self.metrics = metrics
-
-    def to_string(self, *metrics):
-        if len(metrics) == 0:
-            metrics = self.metrics.keys()
-        s = f'{self.variant_id} :\n - avg_bitrate: {self.avg_bitrate:.2f}'
-        for m in metrics:
-            v = self.metrics.get(m, None)
-            s += f'\n - {m}: {v:.2f}'
-        return s
-
-    @property
-    def data(self):
-        return { 'variant_id': self.variant_id, 'avg_bitrate': self.avg_bitrate, **self.metrics }
-
 
