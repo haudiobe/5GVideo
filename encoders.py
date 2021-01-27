@@ -66,13 +66,13 @@ def reference_encoder_args(variant:VariantCfg, recon=True):
         "--InputFile": f'{variant.anchor.reference.path}',
         "--BitstreamFile": f'{variant.bitstream}',
         "--FrameRate": round(variant.anchor.reference.frame_rate) ,
-        "--FrameSkip": variant.anchor.start_frame ,
-        "--FramesToBeEncoded": variant.anchor.frame_count ,
-        "--SourceWidth": variant.anchor.reference.width ,
-        "--SourceHeight": variant.anchor.reference.height ,
-        "--InputBitDepth": variant.anchor.reference.bit_depth ,
-        "--InputBitDepthC": variant.anchor.reference.bit_depth ,
-        "--InputChromaFormat": variant.anchor.reference.chroma_subsampling.value }
+        "--FrameSkip": f'{variant.anchor.start_frame}',
+        "--FramesToBeEncoded": f'{variant.anchor.frame_count}' ,
+        "--SourceWidth": f'{variant.anchor.reference.width}' ,
+        "--SourceHeight": f'{variant.anchor.reference.height}' ,
+        "--InputBitDepth": f'{variant.anchor.reference.bit_depth}' ,
+        "--InputBitDepthC": f'{variant.anchor.reference.bit_depth}' ,
+        "--InputChromaFormat": f'{variant.anchor.reference.chroma_subsampling.value}' }
     
     if recon:
         base["--ReconFile"] = f'{variant.reconstructed}'
@@ -99,8 +99,8 @@ class HM(ReferenceEncoder):
     def decode_variant(v:VariantCfg, **opts):
         decoder = get_env("HM_DECODER")
         args = _to_cli_args({ 
-            "-b": v.bitstream,
-            "-o": v.reconstructed,
+            "-b": f'{v.bitstream}',
+            "-o": f'{v.reconstructed}',
             **opts })
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
         run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
@@ -116,16 +116,16 @@ class VTM(ReferenceEncoder):
     def encode_variant(v:VariantCfg, recon=True, **opts):
         encoder = get_env("VTM_ENCODER")
         logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        opl = v.anchor.working_dir / f'{v.basename}.opl'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), '-opl', opl, *_to_cli_args(opts), dry_run=v.anchor.dry_run)
+        # opl = v.anchor.working_dir / f'{v.basename}.opl'
+        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts), dry_run=v.anchor.dry_run)
         return logfile
 
     @staticmethod
     def decode_variant(v:VariantCfg, **opts):
         decoder = get_env("VTM_DECODER")
         args = _to_cli_args({ 
-            "-b": v.bitstream,
-            "-o": v.reconstructed,
+            "-b": f'{v.bitstream}',
+            "-o": f'{v.reconstructed}',
             **opts })
         logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
         run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
@@ -200,8 +200,64 @@ class JM(ReferenceEncoder):
             {[-p DecParam1=DecValue1]...[-p DecParamM=DecValueM]}
             [-n] Nframes [-mpr] LValue
         """
-        args = [ "-i", v.bitstream,
-            "-o", v.reconstructed,
-            "-r", v.anchor.reference.path ] 
+        args = [ "-i", f'{v.bitstream}',
+            "-o", f'{v.reconstructed}',
+            "-r", f'{v.anchor.reference.path}' ] 
         run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
+        return logfile
+
+
+@register_encoder
+class ETM(ReferenceEncoder):
+
+    encoder_id = "ETM"
+
+    @staticmethod
+    def encode_variant(v:VariantCfg, recon=True, **opts):
+        encoder = get_env("ETM_ENCODER")
+        # opl = v.anchor.working_dir / f'{v.basename}.opl'
+        logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
+
+        assert v.anchor.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
+        assert v.anchor.reference.bit_depth in [8, 10], f'invalid reference bitdepth {v.anchor.reference.bit_depth} | supported: [8,10]'
+        assert not v.anchor.reference.interleaved, 'interleaved format not supported'
+        cf = {
+            "400": 0,
+            "420": 1,
+            "422": 2,
+            "444": 3
+        }[str(v.anchor.reference.chroma_subsampling.value)]
+        args = [
+            '--config', f'{v.anchor.encoder_cfg}',
+            '-i', f'{v.anchor.reference.path}',
+            '-o', f'{v.bitstream}',
+            '-w', f'{v.anchor.reference.width}',
+            '-h', f'{v.anchor.reference.height}',
+            '-z', f'{v.anchor.reference.frame_rate}',
+            '-f', f'{v.anchor.reference.frame_count}',
+            # --codec_bit_depth / codec internal bitdepth (10(default), 8, 12, 14)
+            '-d', f'{v.anchor.reference.bit_depth}',
+            '--chroma_format', f'{cf}',
+            # '--hdr_metric' requires specific  compilation flags
+        ]
+        if recon:
+            # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
+            args += ['-r', v.reconstructed ]
+        run_process(logfile, encoder, *args, dry_run=v.anchor.dry_run)
+        return logfile
+
+    @staticmethod
+    def decode_variant(v:VariantCfg, **opts):
+        decoder = get_env("ETM_DECODER")
+        opl = v.anchor.working_dir / f'{v.basename}.opl'
+        args = [
+            "-i", f'{v.bitstream}',
+            "-o", f'{v.reconstructed}',
+            "--opl", f'{opl}',
+            "-f", f'{v.anchor.reference.frame_count}',
+            "--output_bit_depth", f'{v.anchor.reference.bit_depth}', # defaults to 8 otherwise
+            "-v", '1' # 0=quiet, 2=verbose
+        ]
+        logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
+        run_process(logfile, decoder, *args)
         return logfile
