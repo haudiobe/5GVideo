@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import sys
 import os
 import csv
@@ -98,6 +97,7 @@ def decode_anchor(anchor:AnchorTuple):
     for var in anchor.variants:
         enc.decode_variant(var)
 
+
 def man():
     h = """
     usage:
@@ -131,6 +131,7 @@ def parse_args():
         assert os.getenv('HDRMETRICS_TOOL') != None, 'HDRMETRICS_TOOL environment variable not set'
     
     return cfg, encode, decode, metrics, dry_run
+
 
 
 def main():
