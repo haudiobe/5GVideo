@@ -2,23 +2,69 @@ from abc import ABC, abstractclassmethod
 import os
 import json
 import re
+from pathlib import Path
 from typing import List, Callable
 import subprocess
 from abc import ABC, abstractmethod
 from utils import run_process, VideoInfo, ChromaFormat, ChromaSubsampling
-from anchor import VariantCfg
+from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 __encoders__ = {}
 
 class ReferenceEncoder(ABC):
 
-    @staticmethod
-    def encode_variant(cfg:VariantCfg, **kwargs):
+    # encoder_id = os.getenv("ABC_VERSION", "ABC")
+    # encoder_bin = "ABC_ENCODER"
+    # decoder_bin = "ABC_DECODER"
+
+    @abstractclassmethod
+    def get_variant_cli(cls, qp:int) -> str:
         raise NotImplementedError()
     
-    @staticmethod
-    def decode_variant(cfg:VariantCfg, **kwargs):
+    @abstractclassmethod
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
         raise NotImplementedError()
+
+    @abstractclassmethod
+    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+        raise NotImplementedError()
+
+    @classmethod
+    def decoder_log_metrics(cls) -> dict:
+        # Metrics.DECODETIME
+        return {}
+
+    @classmethod
+    def encoder_log_metrics(cls) -> dict:
+        # Metrics.BITRATELOG, Metrics.ENCODETIME
+        return {}
+
+    @classmethod
+    def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, **kwargs) -> VariantData:
+        encoder = get_env(cls.encoder_bin)
+        bitstream = a.working_dir / f'{variant_id}.bin'
+        logfile = a.working_dir / f'{variant_id}.encoder.log'
+        
+        cmd = cls.get_encoder_cmd(a, variant_cli, bitstream)
+        run_process(logfile, encoder, *cmd, dry_run=a.dry_run)
+        
+        return VariantData.new(a, variant_id, variant_cli, bitstream, logfile)
+
+    @classmethod
+    def decode_variant(cls, v:VariantData, a:AnchorTuple, dst_dir:Path=None) -> ReconstructionMeta:
+        if dst_dir != None:
+            assert dst_dir.is_dir()
+        else:
+            dst_dir = a.working_dir
+        decoder = get_env(cls.decoder_bin)
+        bitstream = a.working_dir / v.bitstream['URI']
+        reconstructed = dst_dir / f'{bitstream.stem}.yuv'
+        logfile = dst_dir / f'{bitstream.stem}.dec.log'
+        
+        cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
+        run_process(logfile, decoder, *cmd, dry_run=a.dry_run)
+        
+        return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=(not a.dry_run))
     
 
 def register_encoder(cls:ReferenceEncoder):
@@ -37,8 +83,16 @@ def get_encoder(id:str) -> 'ReferenceEncoder':
     """
     get a registered encoder implementation
     """
-    return __encoders__[id]
-
+    if id in __encoders__:
+        return __encoders__[id]
+    try:
+        m = re.search('^[a-zA-Z]*', id).group()
+        if m != '':
+            return __encoders__[m]
+    except KeyError:
+        pass
+    return None
+    
 def _to_cli_args(opts:dict):
     """
     convert dict to cli options for HM & VTM softwares
@@ -58,206 +112,212 @@ def get_env(var:str):
     return v
 
 
-def reference_encoder_args(variant:VariantCfg, recon=True):
+
+def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=None):
     """
     HM & VTM softwares share a common set of options
     """
-    base = { "-c": f'{variant.anchor.encoder_cfg}',
-        "--InputFile": f'{variant.anchor.reference.path}',
-        "--BitstreamFile": f'{variant.bitstream}',
-        "--FrameRate": round(variant.anchor.reference.frame_rate) ,
-        "--FrameSkip": f'{variant.anchor.start_frame}',
-        "--FramesToBeEncoded": f'{variant.anchor.frame_count}' ,
-        "--SourceWidth": f'{variant.anchor.reference.width}' ,
-        "--SourceHeight": f'{variant.anchor.reference.height}' ,
-        "--InputBitDepth": f'{variant.anchor.reference.bit_depth}' ,
-        "--InputBitDepthC": f'{variant.anchor.reference.bit_depth}' ,
-        "--InputChromaFormat": f'{variant.anchor.reference.chroma_subsampling.value}' }
-    
-    if recon:
-        base["--ReconFile"] = f'{variant.reconstructed}'
-    return [ *_to_cli_args(base), *_to_cli_args(variant.options) ]
+    cmd = { "-c": f'{a.encoder_cfg}',
+        "--InputFile": f'{a.reference.path}',
+        "--BitstreamFile": str(bitstream),
+        "--FrameRate": round(a.reference.frame_rate) ,
+        "--FrameSkip": f'{a.start_frame}',
+        "--FramesToBeEncoded": f'{a.frame_count}' ,
+        "--SourceWidth": f'{a.reference.width}' ,
+        "--SourceHeight": f'{a.reference.height}' ,
+        "--InputBitDepth": f'{a.reference.bit_depth}' ,
+        "--InputBitDepthC": f'{a.reference.bit_depth}' ,
+        "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}' }
+    if reconstruction != None:
+        cmd["--ReconFile"] = str(reconstruction)
+    return _to_cli_args(cmd)
 
 
 @register_encoder
 class HM(ReferenceEncoder):
     
-    encoder_id = "HM"
+    encoder_id = os.getenv("HM_VERSION", "HM")
+    encoder_bin = "HM_ENCODER"
+    decoder_bin = "HM_DECODER"
 
     @classmethod
-    def get_config_dict(cls, v:VariantCfg) -> dict:
-        pass
+    def get_variant_cli(cls, qp:int) -> str:
+        return f'-q {qp}' # -q / --QP
     
-    @staticmethod
-    def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = get_env("HM_ENCODER")
-        logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts), dry_run=v.anchor.dry_run)
-        return logfile
+    @classmethod
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+        args = reference_encoder_args(a, bitstream, reconstruction) 
+        args += variant_cli.split()
+        return args
 
-    @staticmethod
-    def decode_variant(v:VariantCfg, **opts):
-        decoder = get_env("HM_DECODER")
-        args = _to_cli_args({ 
-            "-b": f'{v.bitstream}',
-            "-o": f'{v.reconstructed}',
-            **opts })
-        logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
-        return logfile
+    @classmethod
+    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}' })
+
+
+@register_encoder
+class SCC(HM):
+    """
+    The reference software for SCC is maintained 
+        in a separate branch of the main HEVC software repository.
+    """
+    encoder_id = os.getenv("SCC_VERSION", "SCC")
+    encoder_bin = "SCC_ENCODER"
+    decoder_bin = "SCC_DECODER"
+
+    @classmethod
+    def get_variant_cli(cls, qp:int) -> str:
+        return super().get_variant_cli(qp)
+
+    @classmethod
+    def get_encoder_cmd(cls, *args, **kwargs):
+        return super().get_encoder_cmd(*args, **kwargs)
+
+    @classmethod
+    def get_decoder_cmd(cls, *args, **kwargs):
+        return super().get_decoder_cmd(*args, **kwargs)
 
 
 
 @register_encoder
 class VTM(ReferenceEncoder):
-    encoder_id = "VTM"
+    
+    encoder_id = os.getenv("VTM_VERSION", "VTM")
+    encoder_bin = "VTM_ENCODER"
+    decoder_bin = "VTM_DECODER"
 
-    @staticmethod
-    def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = get_env("VTM_ENCODER")
-        logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        # opl = v.anchor.working_dir / f'{v.basename}.opl'
-        run_process(logfile, encoder, *reference_encoder_args(v, recon), *_to_cli_args(opts), dry_run=v.anchor.dry_run)
-        return logfile
+    @classmethod
+    def get_variant_cli(cls, qp:int) -> str:
+        return f'-q {qp}' # -q / --QP
 
-    @staticmethod
-    def decode_variant(v:VariantCfg, **opts):
-        decoder = get_env("VTM_DECODER")
-        args = _to_cli_args({ 
-            "-b": f'{v.bitstream}',
-            "-o": f'{v.reconstructed}',
-            **opts })
-        logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
-        return logfile
+    @classmethod
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+        args = reference_encoder_args(a, bitstream, reconstruction) 
+        args += variant_cli.split()
+        return args
+
+    @classmethod
+    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}' })
 
 
 
 @register_encoder
 class JM(ReferenceEncoder):
 
-    encoder_id = "JM"
+    encoder_id = os.getenv("JM_VERSION", "JM")
+    encoder_bin = "JM_ENCODER"
+    decoder_bin = "JM_DECODER"
 
-    @staticmethod
-    def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = get_env("JM_ENCODER")
-        logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
-        tracefile = v.anchor.working_dir / f'{v.basename}.enc.trace.txt'
-        statsfile = v.anchor.working_dir / f'{v.basename}.enc.stats.dat'
+    @classmethod
+    def get_variant_cli(cls, qp:int) -> str:
+        return f'-p QPISlice={qp} -p QPPSlice={qp} -p QPBSlice={qp}'
+
+    @classmethod
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+        # tracefile = v.anchor.working_dir / f'{v.basename}.enc.trace.txt'
+        # statsfile = v.anchor.working_dir / f'{v.basename}.enc.stats.dat'
+
         args = [ "-p", "DisplayEncParams=1",
-            '-d', f'{v.anchor.encoder_cfg}',
-            "-p", f'TraceFile={tracefile}',
-            "-p", f'StatsFile={statsfile}',
-            "-p", f'InputFile={v.anchor.reference.path}',
-            "-p", f'OutputFile={v.bitstream}',
-            "-p", f'FrameRate={float(v.anchor.reference.frame_rate)}',
-            "-p", f'StartFrame={v.anchor.start_frame}',
-            "-p", f'FramesToBeEncoded={v.anchor.frame_count}',
-            "-p", f'SourceWidth={v.anchor.reference.width}',
-            "-p", f'SourceHeight={v.anchor.reference.height}',
-            "-p", f'OutputWidth={v.anchor.reference.width}',
-            "-p", f'OutputHeight={v.anchor.reference.height}',
-            "-p", f'SourceBitDepthLuma={v.anchor.reference.bit_depth}',
-            "-p", f'SourceBitDepthChroma={v.anchor.reference.bit_depth}',
+            "-d", f'{a.encoder_cfg}',
+            # "-p", f'TraceFile={tracefile}',
+            # "-p", f'StatsFile={statsfile}',
+            "-p", f'InputFile={a.reference.path}',
+            "-p", f'OutputFile={bitstream}',
+            "-p", f'FrameRate={float(a.reference.frame_rate)}',
+            "-p", f'StartFrame={a.start_frame}',
+            "-p", f'FramesToBeEncoded={a.frame_count}',
+            "-p", f'SourceWidth={a.reference.width}',
+            "-p", f'SourceHeight={a.reference.height}',
+            "-p", f'OutputWidth={a.reference.width}',
+            "-p", f'OutputHeight={a.reference.height}',
+            "-p", f'SourceBitDepthLuma={a.reference.bit_depth}',
+            "-p", f'SourceBitDepthChroma={a.reference.bit_depth}',
         ]
 
-        if v.anchor.reference.interleaved:
+        if a.reference.interleaved:
             args += ["-p", "Interleaved=1"]
 
-        if v.anchor.reference.chroma_format == ChromaFormat.RGB:
+        if a.reference.chroma_format == ChromaFormat.RGB:
             args += ["-p", 'RGBInput=1', "-p", 'StandardRange=1'] # 1 = full range
         else:
             args += ["-p", 'RGBInput=0', "-p", 'StandardRange=0']
         
-        if v.anchor.reference.chroma_subsampling == ChromaSubsampling.CS_400:
+        if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
             args += ["-p", f'YUVFormat=0']
-        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_420:
+        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_420:
             args += ["-p", f'YUVFormat=1']
-        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_422:
+        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_422:
             args += ["-p", f'YUVFormat=2']
-        elif v.anchor.reference.chroma_subsampling ==  ChromaSubsampling.CS_444:
+        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_444:
             args += ["-p", f'YUVFormat=3']
-        
-        if recon:
-            args += ["-p", f'ReconFile={v.reconstructed}']
 
-        for opt, val in v.options.items():
-            if opt == 'f' or opt == '-f':
-                args += ['-f', str(val)]
-            else:
-                args += ['-p', f'{opt}={val}']
-        run_process(logfile, encoder, *args, dry_run=v.anchor.dry_run) 
-        return logfile
+        if reconstruction != None:
+            args += ["-p", f'ReconFile={reconstruction}']
 
-    @staticmethod
-    def decode_variant(v:VariantCfg, **opts):
-        decoder = get_env("JM_DECODER")
-        logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        """
-        ldecod [-s] [-h] [-d] [defdec.cfg]
-            {[-f curenc1.cfg]...[-f curencN.cfg]}
-            [-i bitstream.264] [-o output.yuv] [-r reference.yuv]
-            {[-p DecParam1=DecValue1]...[-p DecParamM=DecValueM]}
-            [-n] Nframes [-mpr] LValue
-        """
-        args = [ "-i", f'{v.bitstream}',
-            "-o", f'{v.reconstructed}',
-            "-r", f'{v.anchor.reference.path}' ] 
-        run_process(logfile, decoder, *args, dry_run=v.anchor.dry_run)
-        return logfile
+        args += variant_cli.split()
 
+        return args
+
+    @classmethod
+    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+        args = [ "-i", f'{bitstream}', "-o", f'{reconstructed}' ] 
+        # "-r", f'{a.reference.path}' ] 
+        return args
+    
 
 @register_encoder
 class ETM(ReferenceEncoder):
 
-    encoder_id = "ETM"
+    encoder_id = os.getenv("ETM_VERSION", "ETM")
+    encoder_bin = "ETM_ENCODER"
+    decoder_bin = "ETM_DECODER"
 
-    @staticmethod
-    def encode_variant(v:VariantCfg, recon=True, **opts):
-        encoder = get_env("ETM_ENCODER")
-        # opl = v.anchor.working_dir / f'{v.basename}.opl'
-        logfile = v.anchor.working_dir / f'{v.basename}.enc.log'
+    @classmethod
+    def get_variant_cli(cls, qp:int) -> str:
+        return f'-q {qp}' # -q / --QP
 
-        assert v.anchor.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
-        assert v.anchor.reference.bit_depth in [8, 10], f'invalid reference bitdepth {v.anchor.reference.bit_depth} | supported: [8,10]'
-        assert not v.anchor.reference.interleaved, 'interleaved format not supported'
+    @classmethod
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+        assert a.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
+        assert a.reference.bit_depth in [8, 10], f'invalid reference bitdepth {a.reference.bit_depth} | supported: [8,10]'
+        assert not a.reference.interleaved, 'interleaved format not supported'
         cf = {
             "400": 0,
             "420": 1,
             "422": 2,
             "444": 3
-        }[str(v.anchor.reference.chroma_subsampling.value)]
+        }[str(a.reference.chroma_subsampling.value)]
         args = [
-            '--config', f'{v.anchor.encoder_cfg}',
-            '-i', f'{v.anchor.reference.path}',
-            '-o', f'{v.bitstream}',
-            '-w', f'{v.anchor.reference.width}',
-            '-h', f'{v.anchor.reference.height}',
-            '-z', f'{v.anchor.reference.frame_rate}',
-            '-f', f'{v.anchor.reference.frame_count}',
+            '--config', f'{a.encoder_cfg}',
+            '-i', f'{a.reference.path}',
+            '-o', f'{bitstream}',
+            '-w', f'{a.reference.width}',
+            '-h', f'{a.reference.height}',
+            '-z', f'{a.reference.frame_rate}',
+            '-f', f'{a.reference.frame_count}',
             # --codec_bit_depth / codec internal bitdepth (10(default), 8, 12, 14)
-            '-d', f'{v.anchor.reference.bit_depth}',
+            '-d', f'{a.reference.bit_depth}',
             '--chroma_format', f'{cf}',
             # '--hdr_metric' requires specific  compilation flags
         ]
-        if recon:
+        if reconstruction:
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
-            args += ['-r', v.reconstructed ]
-        run_process(logfile, encoder, *args, dry_run=v.anchor.dry_run)
-        return logfile
+            args += ['-r', reconstruction ]
+        
+        args += variant_cli.split()
+        
+        return args
 
-    @staticmethod
-    def decode_variant(v:VariantCfg, **opts):
-        decoder = get_env("ETM_DECODER")
-        opl = v.anchor.working_dir / f'{v.basename}.opl'
+    @classmethod
+    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+        opl = bitstream.with_suffix('.opl')
         args = [
-            "-i", f'{v.bitstream}',
-            "-o", f'{v.reconstructed}',
+            "-i", f'{bitstream}',
+            "-o", f'{reconstructed}',
             "--opl", f'{opl}',
-            "-f", f'{v.anchor.reference.frame_count}',
-            "--output_bit_depth", f'{v.anchor.reference.bit_depth}', # defaults to 8 otherwise
+            # "-f", f'{a.reference.frame_count}',
+            "--output_bit_depth", f'{a.reference.bit_depth}', # defaults to 8 otherwise
             "-v", '1' # 0=quiet, 2=verbose
         ]
-        logfile = v.anchor.working_dir / f'{v.basename}.dec.log'
-        run_process(logfile, decoder, *args)
-        return logfile
+        return args
