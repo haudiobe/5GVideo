@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-
+import argparse
 import sys
 import os
 import csv
@@ -15,27 +15,6 @@ from anchor import AnchorTuple, VariantData, md5_checksum, BitstreamNotFound, Me
 from encoders import get_encoder
 from metrics import Metric, VariantMetricSet, hdrtools_metrics, vmaf_metrics, bd_q
 from enum import Enum
-
-def to_csv(fout:str, fieldnames:List[str], values:List[dict]):
-    with open(fout, 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in values:
-            writer.writerow(row)
-
-
-def parse_args():
-
-    assert len(sys.argv) == 3, 'cmd.py ./anchors.csv ./references.csv'
-
-    anchors = Path(sys.argv[1])
-    assert anchors.exists()
-
-    references = Path(sys.argv[2])
-    assert references.exists()
-
-    # assert os.getenv('HDRMETRICS_TOOL') != None, 'HDRMETRICS_TOOL environment variable not set'
-    return anchors, references
 
 ENCODING = 'utf-8-sig'
 
@@ -57,6 +36,9 @@ class RefSequenceList:
     LOC = 'Location'
     DUR = 'Duration'
 
+class AnchorVerification(Enum):
+    BITSTREAM = 1
+    DECODER = 2
 
 def reference_sequences_by_keys(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
     refs = {}
@@ -124,93 +106,256 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
     if enc_log.exists():
         encoder_metrics = enc.encoder_log_metrics(enc_log)
         metrics = { **metrics, **encoder_metrics }
+    else:
+        print(f'enccoder log not found: {enc_log}')
 
     dec_log = a.working_dir / vd.reconstruction['log-file']
     if dec_log.exists():
-        decoder_metrics = enc.decoder_log_metrics(enc_log)
+        decoder_metrics = enc.decoder_log_metrics(dec_log)
         metrics = { **metrics, **decoder_metrics }
+    else:
+        print(f'decoder log not found: {dec_log}')
     
     return VariantMetricSet(vd.variant_id, metrics)
 
-def compute_variant_metrics(a:AnchorTuple, vd:VariantData):
-    dec = get_encoder(a.encoder_id)
-    reconstruction = dec.decode_variant(vd, a)
-    metrics = compute_metrics(a, vd, reconstruction)
-    return reconstruction, metrics
 
-def verify_metrics(vf:Path, vd:VariantData, a:AnchorTuple, tmp_dir=True) -> dict:
+def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerification, success:bool, log_data:str=None, contact:str=None):
+
+    if not success:
+        assert (log_data != None) and (log_data != '')
+
+    if vd.verification == None:
+        vd.verification = { "Reports": [] }
+    elif not "Reports" in vd.verification:
+        vd.verification["Reports"] = []
+    
+    ts = datetime.now(timezone.utc)
+    report = {
+        "date": ts.strftime('%d/%m/%y %H:%M:%S'), # .isoformat(),
+        "contact": contact
+    }
+
+    idx = len(vd.verification["Reports"])
+
+    if verification_type == AnchorVerification.BITSTREAM:
+        key = "bistream"
+    elif verification_type == AnchorVerification.DECODER:
+        key = "decoder"
+
+    if not success:
+        log_file = vf.parent / f'{vd.variant_id}_verification_{idx}_{key}_{ts.strftime("%d%m%y")}.log'
+        with open(log_file, 'w') as fo:
+            fo.write(log_data)
+        report["report"] = str(Path('.') / log_file.name)
+
+    report[key] = success
+
+    vd.verification["Reports"].append(report)
+    vd.save_as(vf)
+
+
+
+#########################################################################################################
+
+def decoder_verification_preflight(a:AnchorTuple):
     """
-    1. decode into a temporary folder, 
-    2. compute metrics on it, 
+    verifies that:
+        * all variant bitstreams exists
+        * all bitstreams md5 match their json description
+        * has expected metric set
+    """
+    err = None
+    for vf, vd in iter_variants(a):
+        try:
+            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
+            vd.has_metric_set( *VariantMetricSet.get_keys(a) )
+        except BaseException as e:
+            if err == None:
+                err = []
+            err.append((vf, vd, e))
+    return err
+
+
+def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir=True) -> Tuple[bool, str]:
+    """
+    1. decode into a temporary folder
+    2. compute metrics with freshly decoded data
     3. compare with values defined in VariantData
-    4. update VariantData, return the list of errors
+    return a diff in case of missmatch
     """
-    # sanity check
     enc_id, enc, dec = a.encoder_id, vd.generation['encoder'], vd.reconstruction['decoder']
     assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
     dec = get_encoder(enc_id)
-    
-    # generate verification metrics
+
+    # compute metrics for verification
     tmp = vf.parent.with_suffix('.tmp')
     tmp.mkdir(exist_ok=(not tmp_dir))
 
-    r = dec.decode_variant(vd, a, tmp)
+    r = dec.decode_variant(a, vd, tmp)
     if not a.dry_run:
         assert r.reconstructed_md5 == vd.reconstruction['md5']
 
-    # compute tmp metrics & compare
     metrics_new = compute_metrics(a, vd, r)
-    
     if a.dry_run:
-        return
+        return False, 'dry-run'
 
     report = {}
-    for m in VariantMetricSet.get_keys():
+    for m in VariantMetricSet.get_keys(a):
         found = metrics_new[m]
         expected = vd.metrics[m]
         if math.isclose(found, expected, rel_tol=1e-4):
-            report[m] = f'found:{found},expected:{expected}'
+            report[m] = expected - found
     
-    vd.verification['date'] = datetime.now(timezone.utc).isoformat()
-    vd.verification['verified'] = len(report) == 0
-    vd.save_as(vf)
+    if tmp_dir:
+        shutil.rmtree(tmp)
     
-    # remove tmp files
+    if len(report) == 0:
+        return True, None
+    else:
+        log = 'Metric key:\tDIFF\n'
+        for k, v in report:
+            log += f'{k}:\t{v}\n'
+        return False, log
+
+
+def verify_anchor_metrics(a:AnchorTuple, contact:str=None):
+    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
+    a_errors = []
+    for vf, vd in iter_variants(a):
+        assert vd != None, f'variant data not found:{vf}'
+        success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=False)
+        save_verification_report(vf, vd, AnchorVerification.DECODER, success, log_data, contact=contact)
+        if not success:
+            a_errors.append(log_data)
+    return a_errors
+
+
+#########################################################################################################
+
+def bitstream_verification_preflight(a:AnchorTuple):
+    """
+    verifies:
+        * all variant bitstreams exists
+        * all bitstreams md5 match their json description
+    """
+    err = None
+    for vf, vd in iter_variants(a):
+        try:
+            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
+        except BaseException as e:
+            if err == None:
+                err = []
+            err.append((vf, vd, e))
+    return err
+
+
+def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir=True) -> Tuple[bool, str]:
+    """
+    verifies:
+        * re-encoding a new bitstream matches md5 of the existing bitstream
+    """
+    enc_id, enc, dec = a.encoder_id, vd.generation['encoder'], vd.reconstruction['decoder']
+    assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
+    enc = get_encoder(enc_id)
+
+    tmp = vf.parent.with_suffix('.tmp')
+    tmp.mkdir(exist_ok=(not tmp_dir))
+
+    vd_new = dec.encode_variant(a, vd.variant_id, vd.variant_cli, tmp)
+    md5_new = vd_new.bitstream["md5"]
+    md5_ref = vd.bitstream["md5"]
+    
     if tmp_dir:
         shutil.rmtree(tmp)
 
-    return report
+    if md5_new == md5_ref:
+        return True
+    else:
+        return False, f'invalid md5 - expected:{md5_new} - found:{md5_ref}'
+
+
+def verify_anchor_bitstreams(a:AnchorTuple, contact:str=None):
+    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
+    a_errors = []
+    for vf, vd in iter_variants(a):
+        assert vd != None, f'variant data not found:{vf}'
+        success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=False)
+        save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, contact=contact)
+        if not success:
+            a_errors.append(log_data)
+    return a_errors
+
+
+#########################################################################################################
+
+def verify(verification_type:AnchorVerification, refs:Dict[str, VideoSequence], anchors:Iterable[AnchorTuple], dry_run=True, contact=None):
+
+    batch = []
+    preflight_errors = {}
+
+    if verification_type == AnchorVerification.DECODER:
+        preflight_fn = decoder_verification_preflight
+        verification_fn = verify_anchor_metrics
+
+    elif verification_type == AnchorVerification.BITSTREAM:
+        preflight_fn = bitstream_verification_preflight
+        verification_fn = verify_anchor_bitstreams
+
+    for a in anchors:
+        err = preflight_fn(a)
+        if err == None:
+            batch.append(a)
+        else:
+            preflight_errors[a] = err
+            print(f'{a} - error - can not run verification:\n * {err}')
+
+    for a in batch:
+        a.dry_run = dry_run
+        errors = verification_fn(a, contact)
+        print(f'{a} - error - verification failed:\n * {errors}')
+
 
 def main():
     
-    anchors, references = parse_args()
-    references_dir = Path('/media/akgrown/NILS/5GVIDEO/ReferenceSequences')
-    # anchors_dir = Path('/media/akgrown/NILS/5GVIDEO/Anchors/Scenario-5')
-    anchors_dir = Path('v2/5GVideo/Anchors/Scenario-5')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('bitstream', help='do bitstream verification, instead of decoder/metrics verification')
+    # parser.add_argument('bitstream', action='store_true', default=False, help='do bitstream verification, instead of decoder/metrics verification')
+    parser.add_argument('-s','--sequences', required=True, type=str, help='sequences.csv file containing the list of reference raw sequences')
+    parser.add_argument('--s_dir', required=True, type=str, help='the directory containing the reference sequences')
+    parser.add_argument('-a', '--anchors', required=True, type=str, help='anchors.csv file containing the list of anchors for a scenario')
+    parser.add_argument('--a_dir', required=False, type=str, help='a scenario directory, containing the anchors')
+    parser.add_argument('-c', '--contact', required=True, type=str, help='email for the verification report contact field')
+    parser.add_argument('-d', '--dry_run', action='store_true', default=False)
+    args = parser.parse_args()
 
-    refs = reference_sequences_by_keys(references, references_dir)
+    references_csv = Path(args.sequences)
+    assert references_csv.exists()
+    references_dir = Path(args.s_dir)
+    assert references_dir.is_dir()
 
-    for a in iter_anchors(anchors, refs, anchors_dir):
-        assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
-        a.dry_run = True
-        for vf, vd in iter_variants(a):
-            if vd == None:
-                print('Not found:', vf)
-                continue
-            verify_metrics(vf, vd, a, tmp_dir=False)
-            """
-            try:
-                _ = v.locate_bitstream(anchor_dir=a.working_dir, md5_check=True)
-            except AssertionError as e:
-                print("error", e)
-                print("> encode, decode, metrics, save")
-            
-            if v.has_metric_set():
-                print("> decode, metrics, compare")
-            
-            else:
-                print("> decode, metrics, save")
-            """
+    anchors_csv = Path(args.sequences)
+    assert references_csv.exists()
+    anchors_dir = Path(args.s_dir)
+    assert references_dir.is_dir()
+
+    anchors_csv = Path(args.anchors)
+    anchors_dir = Path(args.a_dir)
+
+    if args.bitstream:
+        verification_type = AnchorVerification.BITSTREAM
+    else:
+        verification_type = AnchorVerification.DECODER
+
+    refs = reference_sequences_by_keys(references_csv, references_dir)
+    anchors = iter_anchors(anchors_csv, refs, anchors_dir)
+    verify(
+        verification_type,
+        refs, 
+        anchors, 
+        dry_run=args.dry_run,
+        contact=args.contact
+    )
+
 
 if __name__ == "__main__":
     main()

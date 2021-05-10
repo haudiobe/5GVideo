@@ -56,13 +56,18 @@ class VariantData:
 
 
     @property
-    def variant_id(self):
+    def variant_id(self) -> str:
         return self._bitstream["key"]
+
+    @property
+    def variant_cli(self) -> str:
+        return self._generation["variant"]
+    
 
     #######################################
 
     @property
-    def generation(self):
+    def generation(self) -> dict:
         return self._generation
 
     @generation.setter
@@ -75,7 +80,7 @@ class VariantData:
     #######################################
 
     @property
-    def bitstream(self):
+    def bitstream(self) -> dict:
         return self._bitstream
 
     @bitstream.setter
@@ -88,7 +93,7 @@ class VariantData:
     #######################################
 
     @property
-    def reconstruction(self):
+    def reconstruction(self) -> dict:
         return self._reconstruction
 
     @reconstruction.setter
@@ -101,7 +106,7 @@ class VariantData:
     #######################################
 
     @property
-    def metrics(self):
+    def metrics(self) -> dict:
         return self._metrics
 
     @metrics.setter
@@ -114,20 +119,20 @@ class VariantData:
     #######################################
 
     @property
-    def verification(self):
+    def verification(self) -> dict:
         return self._verification
 
     @verification.setter
     def verification(self, b:dict):
         if b == None:
             self._verification = None
-        keys = [ "date", "verified" ]
+        keys = [ "Reports" ] #, "cross-verification-status" ]
         self._verification = { k: b[k] for k in keys }
 
     #######################################
 
     @property
-    def contact(self):
+    def contact(self) -> dict:
         return self._contact
 
     @contact.setter
@@ -140,7 +145,7 @@ class VariantData:
     #######################################
 
     @property
-    def copyright(self):
+    def copyright(self) -> str:
         return self._copyright
 
     @copyright.setter
@@ -149,12 +154,10 @@ class VariantData:
 
     #######################################
 
-    def locate_bitstream(self, anchor_dir:Path=None, md5_check=True):
+    def locate_bitstream(self, anchor_dir:Path, md5_check=True) -> Path:
         assert self.bitstream != None, 'bitstream definition not found'
-        fp = Path(self._bitstream['URI'])
-        if anchor_dir != None:
-            assert anchor_dir.is_dir(), 'invalid anchor directory'
-            fp = anchor_dir / fp
+        assert anchor_dir.is_dir(), 'invalid anchor directory'
+        fp = anchor_dir / Path(self._bitstream['URI'])
         assert fp.exists(), f'bitstream file does not exist: {fp}'
         if md5_check:
             assert self._bitstream['md5'] == md5_checksum(fp), f'md5 missmatch: {fp}'
@@ -175,14 +178,16 @@ class VariantData:
             "Generation": self._generation,
             "Reconstruction": self._reconstruction,
             "Metrics": self._metrics,
+            "Verification": self._verification,
             "copyRight": self._copyright,
             "Contact": self._contact
         }
-        return json.dumps(data)
+        return json.dumps(data, indent=4)
 
     def save_as(self, fp:Path):
+        data = self.dumps()
         with open(fp, 'w') as fo:
-            fo.write_text(self.dumps())
+            fo.write(data)
 
     @classmethod
     def load(cls, fp:Path) -> 'VariantData':
@@ -200,6 +205,7 @@ class VariantData:
 
     @classmethod
     def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, bitstream_fp:Path, encoder_log:Path) -> 'VariantData':
+        assert bitstream_fp.exists(), f'{bitstream_fp} not found'
         generation = {
             "key": variant_id,
             "sequence": a.reference.path.name,
@@ -300,32 +306,6 @@ class AnchorTuple:
         for qp in self._variants:
             yield self._anchor_key.replace('<QP>', str(qp)), (qp,)
     
-
-    """
-    @staticmethod
-    def load(file:str) -> 'AnchorTuple':
-        with open(file, 'r') as f:
-            
-            rootdir = Path(file).parent
-            data = json.load(f)
-
-            src = resolve_path(data["reference"], rootdir)
-            test_sequence = VideoSequence.from_sidecar_metadata(Path(src).resolve())
-            
-            encoder_id = data["encoder_id"]
-            encoder_cfg = resolve_path(data["encoder_cfg"], rootdir)
-            
-            if "variants" in data:
-                variants = data["variants"]
-            else:
-                variants = {}
-            
-            # anchor may be defined as a segment of the reference sequence, otherwise the entire sequence gets used
-            if "reference_segment" in data:
-                segment = data["reference_segment"]
-                start_frame = segment.get('start_frame', 0)
-                frame_count = segment.get('frame_count', 1)
-            
-            description = data.get("description", None)
-            return AnchorTuple(test_sequence, encoder_id, encoder_cfg, variants, description, start_frame, frame_count)
-    """
+    @property
+    def anchor_key(self):
+        return self._anchor_key

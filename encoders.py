@@ -40,18 +40,25 @@ class ReferenceEncoder(ABC):
         return {}
 
     @classmethod
-    def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, **kwargs) -> VariantData:
+    def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, dst_dir:Path=None) -> VariantData:
+        
+        if dst_dir != None:
+            assert dst_dir.is_dir()
+        else:
+            dst_dir = a.working_dir
+
         encoder = get_env(cls.encoder_bin)
-        bitstream = a.working_dir / f'{variant_id}.bin'
-        logfile = a.working_dir / f'{variant_id}.encoder.log'
+        bitstream = dst_dir / f'{variant_id}.bin'
+        logfile = dst_dir / f'{variant_id}.encoder.log'
         
         cmd = cls.get_encoder_cmd(a, variant_cli, bitstream)
         run_process(logfile, encoder, *cmd, dry_run=a.dry_run)
         
         return VariantData.new(a, variant_id, variant_cli, bitstream, logfile)
 
+
     @classmethod
-    def decode_variant(cls, v:VariantData, a:AnchorTuple, dst_dir:Path=None) -> ReconstructionMeta:
+    def decode_variant(cls, a:AnchorTuple, v:VariantData, dst_dir:Path=None) -> ReconstructionMeta:
         if dst_dir != None:
             assert dst_dir.is_dir()
         else:
@@ -147,7 +154,7 @@ class HM(ReferenceEncoder):
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction) 
-        args += variant_cli.split()
+        args += shlex.split(variant_cli)
         return args
 
     @classmethod
@@ -193,7 +200,7 @@ class VTM(ReferenceEncoder):
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction) 
-        args += variant_cli.split()
+        args += shlex.split(variant_cli)
         return args
 
     @classmethod
@@ -211,7 +218,7 @@ class JM(ReferenceEncoder):
 
     @classmethod
     def get_variant_cli(cls, qp:int) -> str:
-        return f'-p QPISlice={qp} -p QPPSlice={qp} -p QPBSlice={qp}'
+        return f'-p QPISlice={qp} -p QPPSlice={qp}'
 
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
@@ -255,7 +262,7 @@ class JM(ReferenceEncoder):
         if reconstruction != None:
             args += ["-p", f'ReconFile={reconstruction}']
 
-        args += variant_cli.split()
+        args += shlex.split(variant_cli)
 
         return args
 
@@ -305,7 +312,7 @@ class ETM(ReferenceEncoder):
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
             args += ['-r', reconstruction ]
         
-        args += variant_cli.split()
+        args += shlex.split(variant_cli)
         
         return args
 

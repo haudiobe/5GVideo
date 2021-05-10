@@ -129,27 +129,29 @@ class VideoSequence(VideoInfo):
     @staticmethod
     def from_sidecar_metadata(metadata:Path):
         # https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
+        data = None
         try:
             with open(metadata, 'r') as reader:
                 data = json.load(reader)
-                assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
-                assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
-                assert 'Key' in data['Sequence'], f"{metadata}\n'Key' key missing from 'Sequence' metadata"
-                assert 'Name' in data['Sequence'], f"{metadata}\n'Name' key missing from 'Sequence' metadata"
-                assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
-                # assert 'size' in data['Sequence'], f"{metadata}\n'size' key missing from 'Sequence' metadata"
-                assert 'Background' in data['Sequence'], f"{metadata}\n'Background' key missing from 'Sequence' metadata"
-                assert 'Scenario' in data['Sequence'], f"{metadata}\n'Scenario' key missing from 'Sequence' metadata"
-                assert 'thumbnail' in data['Sequence'], f"{metadata}\n'thumbnail' key missing from 'Sequence' metadata"
-                assert 'preview' in data['Sequence'], f"{metadata}\n'preview' key missing from 'Sequence' metadata"
-                assert 'TR26.955' in data['Sequence'], f"{metadata}\n'TR26.955' key missing from 'Sequence' metadata"
-                # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
-                raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
-                assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'
-                props = data['Properties']
-                contact = data.get('Contact', None )
-                cc = data.get('copyRight', None )
-                return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
         except FileNotFoundError:
-            raise Exception(f'missing sidecar metadata for {raw_sequence}')
+            raise Exception(f'missing sidecar metadata for {metadata}')
+        assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
+        assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
+        assert 'Key' in data['Sequence'], f"{metadata}\n'Key' key missing from 'Sequence' metadata"
+        assert 'Name' in data['Sequence'], f"{metadata}\n'Name' key missing from 'Sequence' metadata"
+        assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
+        # assert 'size' in data['Sequence'], f"{metadata}\n'size' key missing from 'Sequence' metadata"
+        assert 'Background' in data['Sequence'], f"{metadata}\n'Background' key missing from 'Sequence' metadata"
+        assert 'Scenario' in data['Sequence'], f"{metadata}\n'Scenario' key missing from 'Sequence' metadata"
+        assert 'thumbnail' in data['Sequence'], f"{metadata}\n'thumbnail' key missing from 'Sequence' metadata"
+        assert 'preview' in data['Sequence'], f"{metadata}\n'preview' key missing from 'Sequence' metadata"
+        assert 'TR26.955' in data['Sequence'], f"{metadata}\n'TR26.955' key missing from 'Sequence' metadata"
+        # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
+        raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
+        assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'
+        props = data['Properties']
+        contact = data.get('Contact', None )
+        cc = data.get('copyRight', None )
+        return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
+
             

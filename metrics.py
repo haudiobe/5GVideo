@@ -49,12 +49,12 @@ class VariantMetricSet:
         self.metrics = metrics
 
     @classmethod
-    def get_keys(cls):
-        return [
-            "Key",
-            *cls.required,
-            *cls.encoder_stats
-        ]
+    def get_keys(cls, anchor:AnchorTuple):
+        if anchor._reference.bit_depth == 8:
+            return [ "Key", *cls.required, *cls.encoder_stats ]
+        else:
+            # should only fail for HDR QP
+            raise NotImplementedError("reference sequence format not supported")
 
     def to_dict(self):
         filtered = { m: self.metrics[m] for m in self.required }
