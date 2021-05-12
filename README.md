@@ -31,6 +31,8 @@ docker run -it \
 
 ## anchor verification 
 
+> see the `samples` directory for sample verification logs and reports. 
+
 `verify.py` script runs verification for bitstream or metrics, updates the anchor's metrics if verification is successfull.
 
 verify a specific anchor's bitstreams:
@@ -53,9 +55,18 @@ verify all metrics in a scenarios:
 verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
 ```
 
+
+**Report template**
+
+the `--template` argument can be used to provide the path to a json template for the report (contact info, etc ...), eg.:
+```
+verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream --template ./report-template.json
+```
+
+**Custom directory layout**
+
 the verification script has additional command line arguments to customize directory layout, see `verify.py -h`.
 
-see the `samples` directory for sample verification logs and reports.
 
 
 ## metrics generation
@@ -85,6 +96,10 @@ encode all anchors in Scenario-3:
 create.py --scenario_dir /data/Anchors/Scenario-3 encoder
 ```
 
+**Notes**
+
+* reference sequences and encoder configuration should be accessible from the same relative path, relative to the target scenario. 
+* the scenario directory must contain `anchors.csv`, `reference-sequences.csv`
 
 
 # environment variables 
@@ -109,12 +124,6 @@ HM_DECODER=/path/to/bin/TAppDecoderStatic
 [SCM](https://vcgit.hhi.fraunhofer.de/jvet/HM/-/tree/HM-SCC-extensions)
 ENV SCM_ENCODER=/path/to/SCM/bin/TAppEncoderStatic
 ENV SCM_DECODER=/path/to/SCM/bin/TAppDecoderStatic
-
-[VTM](https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM)
-```
-VTM_ENCODER=/path/to/bin/EncoderAppStatic
-VTM_DECODER=/path/to/bin/DecoderAppStatic
-```
 
 [VTM](https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM)
 ```
