@@ -75,7 +75,7 @@ def decoder_verification_preflight(a:AnchorTuple):
     return err
 
 
-def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=False) -> Tuple[bool, str]:
+def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True) -> Tuple[bool, str]:
     """
     1. decode into a temporary folder
     2. compute metrics with freshly decoded data
@@ -120,7 +120,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
             success = False
         log.append(f'{m} - expected:{expected} - result: {found}\n')
     
-    if debug:
+    if not debug:
         shutil.rmtree(tmp)
     
     return success, log
@@ -164,7 +164,7 @@ def bitstream_verification_preflight(a:AnchorTuple) -> List[Tuple[Path, Any, str
     return err
 
 
-def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=False) -> Tuple[bool, str]:
+def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True) -> Tuple[bool, str]:
     """
     verifies:
         * re-encoding a new bitstream matches md5 of the existing bitstream
@@ -184,7 +184,7 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
     md5_new = vd_new.bitstream["md5"]
     md5_ref = vd.bitstream["md5"]
     
-    if debug:
+    if not debug:
         shutil.rmtree(tmp)
 
     if md5_new == md5_ref:
@@ -202,7 +202,6 @@ def verify_anchor_bitstreams(a:AnchorTuple, contact:str=None, tmp_dir:Path=None)
         save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, contact=contact)
         if not success:
             a_errors.append(log_data)
-        assert 0
     return a_errors
 
 
@@ -233,7 +232,6 @@ def verify(verification_type:AnchorVerification, anchors:Iterable[AnchorTuple], 
         a.dry_run = dry_run
         errors = verification_fn(a, contact, tmp_dir=tmp_dir)
         print(f'{a} - error - verification failed:\n * {errors}')
-        assert 0
 
 
 
@@ -243,6 +241,7 @@ def main():
     parser.add_argument('type', help='"bitstream" or "decoder"')
     parser.add_argument('-s','--sequences', required=True, type=str, help='sequences.csv file containing the list of reference raw sequences')
     parser.add_argument('-a', '--anchors', required=True, type=str, help='anchors.csv file containing the list of anchors for a scenario')
+    parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
     parser.add_argument('--s_dir', required=False, type=str, help='the directory containing the reference sequences')
     parser.add_argument('--a_dir', required=False, type=str, help='a scenario directory, containing the anchors')
     parser.add_argument('--cfg_dir', required=False, type=str, help='directory where encoder configurations can be found, required for bitstream verification')
@@ -250,7 +249,7 @@ def main():
     parser.add_argument('--tmp_dir', required=False, type=str, help='tmp directory to encode / decode data')
     parser.add_argument('--dry-run', action='store_true', default=False)
     args = parser.parse_args()
-
+    
     references_csv = Path(args.sequences)
     assert references_csv.exists()
 
@@ -285,8 +284,13 @@ def main():
         tmp_dir = Path(args.tmp_dir)
         assert tmp_dir.exists()
 
+    keys = None
+    if args.key != None:
+        keys = [args.key]
+
     refs = reference_sequences_dict(references_csv, references_dir)
-    anchors = iter_anchors(anchors_csv, refs, scenario_dir, Path(args.cfg_dir))
+
+    anchors = iter_anchors(anchors_csv, refs, scenario_dir, Path(args.cfg_dir), keys=keys)
     try:
         verify(
             verification_type,

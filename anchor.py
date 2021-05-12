@@ -315,17 +315,23 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Di
             refs[row[RefSequenceList.KEY]] = vs
     return refs
 
-def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=Path('../CFG')) -> Iterable[AnchorTuple]:
+def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=Path('../CFG'), keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
+    anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
+            anchor_key = row[AnchorList.VARIANT_KEY]
+            if (keys != None) and (anchor_key not in keys):
+                continue
             seq = refs[row[AnchorList.REF_SEQ]]
             description = row[AnchorList.CLAUSE]
             encoder_id = row[AnchorList.REF_ENC] # eg. HM16.22, 
             encoder_cfg = cfg_dir / (str(row[AnchorList.CFG]).lower() + '.cfg') # eg. S3-HM-01, no directory context specified
             variants = row[AnchorList.VARIANTS]
             anchor_dir = scenario_dir / row[AnchorList.KEY]
-            anchor_key = row[AnchorList.VARIANT_KEY]
-            yield AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, anchor_key, description, seq.start_frame, seq.frame_count)
+            anchors.append(
+                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, anchor_key, description, seq.start_frame, seq.frame_count)
+            )
+    return anchors
 
 def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
     """ 
