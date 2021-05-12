@@ -11,7 +11,7 @@ from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
 from encoders import get_encoder
-from metrics import compute_metrics, VariantMetricSet
+from metrics import Metric, compute_metrics, VariantMetricSet
 
 
 class AnchorVerification(Enum):
@@ -121,7 +121,10 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
         log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
         success = False
     
+    skipped = [Metric.BITRATE.value, Metric.BITRATELOG.value, Metric.DECODETIME, Metric.ENCODETIME]
     for m in VariantMetricSet.get_keys(a):
+        if m in skipped:
+            continue
         found = metrics_new[m]
         expected = vd.metrics[m]
         if math.isclose(found, expected, rel_tol=1e-4):
