@@ -1,6 +1,7 @@
 FROM python:buster
 
 ARG HM_VERSION=tags/HM-16.22
+ARG SCM_VERSION=tags/HM-16.21+SCM-8.8
 ARG VTM_VERSION=tags/VTM-11.0
 # adds CMakelist.txt on top of tags/JM-19.0
 ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
@@ -26,7 +27,7 @@ RUN [ ! -z "${jm_psnr_undef}" ] && cd ./HDRTools && git apply ./HDRTOOLS_disable
 
 RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
-  make -j
+  make -j 4
 
 ENV HDRMETRICS_TOOL=/home/deps/HDRTools/build/bin/HDRMetrics
 
@@ -35,10 +36,10 @@ RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/HM.git && \
   cd ./HM && git checkout ${HM_VERSION}
 RUN mkdir -p ./HM/build && cd ./HM/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
-  make -j
+  make -j 4
 
 ENV HM_ENCODER=/home/deps/HM/bin/TAppEncoderStatic
-ENV HM_DECODER=/home/deps/HM/bin/TDecoderEncoderStatic
+ENV HM_DECODER=/home/deps/HM/bin/TAppDecoderStatic
 
 ## VTM ###
 RUN mkdir VTM && git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM ./VTM && \
@@ -47,7 +48,7 @@ RUN mkdir VTM && git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM 
 RUN mkdir -p ./VTM/build && cd ./VTM/build && \
   ln -s /home/deps/HDRTools/common /home/deps/VTM/source/Lib/HDRLib && \
   cmake .. -DCMAKE_BUILD_TYPE=Release -DEXTENSION_HDRTOOLS=on && \
-  make -j
+  make -j 4
 
 ENV VTM_ENCODER=/home/deps/VTM/bin/EncoderAppStatic
 ENV VTM_DECODER=/home/deps/VTM/bin/DecoderAppStatic
@@ -62,7 +63,7 @@ RUN cd ./JM && git apply ./JM_ignore_compiler_warnings.patch
 
 RUN mkdir -p ./JM/build && cd JM/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    make -j
+    make -j 4
 
 ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
 ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
@@ -77,13 +78,13 @@ ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
 
 
 ## HM SCC extension ###
-RUN cp /home/deps/HM /home/deps/SCM
+RUN cp -r /home/deps/HM /home/deps/SCM
 RUN cd ./SCM && rm -rf ./bin/* && rm -rf ./build/* && git checkout ${SCM_VERSION}
 RUN cd ./SCM/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
-  make -j
+  make -j 4
 ENV SCM_ENCODER=/home/deps/SCM/bin/TAppEncoderStatic
-ENV SCM_DECODER=/home/deps/SCM/bin/TDecoderEncoderStatic
+ENV SCM_DECODER=/home/deps/SCM/bin/TAppDecoderStatic
 
 
 WORKDIR /home/5GVideo
