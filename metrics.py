@@ -4,13 +4,16 @@ import struct
 import io
 import os
 import json
+import csv
 
 from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
-from anchor import AnchorTuple, VariantData, ReconstructionMeta
+from anchor import AnchorTuple, VariantData, ReconstructionMeta, iter_variants
 from utils import run_process
 from encoders import get_encoder
 from enum import Enum
+
+from typing import Dict
 
 class Metric(Enum):
     PSNR = "PSNR"
@@ -286,6 +289,19 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
     return VariantMetricSet(vd.variant_id, metrics)
 
 
+def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
+    fieldnames = ["key", VariantMetricSet.get_keys(a)]
+    for vf, vd in iter_variants(a):
+        assert vf.exists(), f'{vf} not found'
+    if dst == None:
+        dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
+    with open(dst, 'w') as fo:
+        writer = csv.DictWriter(fo, fieldnames=fieldnames)
+        writer.writeheader()
+        for vf, vd in iter_variants(a):
+            data = { k: vd.metrics[k] for k in fieldnames }
+            writer.writerow({ "key": vd.variant_id, **data })
+            
 
 ################################################################################
 

@@ -11,7 +11,7 @@ from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
 from encoders import get_encoder
-from metrics import Metric, compute_metrics, VariantMetricSet
+from metrics import Metric, VariantMetricSet, compute_metrics, anchor_metrics_to_csv
 
 
 class AnchorVerification(Enum):
@@ -146,6 +146,8 @@ def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None):
         save_verification_report(vf, vd, AnchorVerification.DECODER, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
+    if len(a_errors) == 0:
+        anchor_metrics_to_csv(a)
     return a_errors
 
 
