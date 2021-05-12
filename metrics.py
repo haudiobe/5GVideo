@@ -178,7 +178,7 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
 
     dist = VideoSequence(reconstructed, **ref.properties)
 
-    input0 = hdrtools_input(ref, ref=True, start_frame=0) # a.start_frame)
+    input0 = hdrtools_input(ref, ref=True, start_frame= a.start_frame-1 )
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
     run = [
         '-p', f'EnablehexMetric=1', # the parser collects hex values only
