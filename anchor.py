@@ -319,7 +319,7 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
     anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
-            anchor_key = row[AnchorList.VARIANT_KEY]
+            anchor_key = row[AnchorList.KEY]
             if (keys != None) and (anchor_key not in keys):
                 continue
             seq = refs[row[AnchorList.REF_SEQ]]
@@ -328,8 +328,9 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
             encoder_cfg = cfg_dir / (str(row[AnchorList.CFG]).lower() + '.cfg') # eg. S3-HM-01, no directory context specified
             variants = row[AnchorList.VARIANTS]
             anchor_dir = scenario_dir / row[AnchorList.KEY]
+            bitsream_key_template = row[AnchorList.VARIANT_KEY]
             anchors.append(
-                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, anchor_key, description, seq.start_frame, seq.frame_count)
+                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count)
             )
     return anchors
 
