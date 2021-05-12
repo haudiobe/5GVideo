@@ -7,15 +7,18 @@ import json
 
 from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
-from anchor import AnchorTuple, VariantData
+from anchor import AnchorTuple, VariantData, ReconstructionMeta
 from utils import run_process
+from encoders import get_encoder
 from enum import Enum
 
 class Metric(Enum):
     PSNR = "PSNR"
-    PSNR_Y = "PSNR-Y"
+    PSNR_Y = "YPSNR"
+    PSNR_U = "UPSNR"
+    PSNR_V = "VPSNR"
     SSIM = "SSIM"
-    MSSSIM = "MSSSIM"
+    MSSSIM = "MS_SSIM"
     VMAF = "VMAF"
     BITRATE = "Bitrate"
     BITRATELOG = "BitrateLog"
@@ -26,8 +29,9 @@ class Metric(Enum):
 class VariantMetricSet:
 
     required = [
-        Metric.PSNR, 
         Metric.PSNR_Y,
+        Metric.PSNR_U,
+        Metric.PSNR_V,
         Metric.MSSSIM, 
         Metric.VMAF,
         Metric.BITRATE
@@ -42,29 +46,24 @@ class VariantMetricSet:
     def __init__(self, variant_id:str, metrics:dict):
         self.variant_id = variant_id
         for m in self.required:
-            assert m in metrics, f'missing required metric {m}'
+            assert m.value in metrics, f'missing required metric {m}'
         for m in self.encoder_stats:
-            if not (m in metrics):
+            if not (m.value in metrics):
                 print('missing encoder stat: ', m)
         self.metrics = metrics
 
     @classmethod
     def get_keys(cls, anchor:AnchorTuple):
-        if anchor._reference.bit_depth == 8:
-            return [ "Key", *cls.required, *cls.encoder_stats ]
+        if anchor._reference.transfer_characteristics != TransferFunction.BT2020_PQ:
+            return [m.value for m in [ *cls.required, *cls.encoder_stats ]]
         else:
-            # should only fail for HDR QP
-            raise NotImplementedError("reference sequence format not supported")
+            raise NotImplementedError(f'unsupported transfer function, {TransferFunction.BT2020_PQ}')
 
     def to_dict(self):
-        filtered = { m: self.metrics[m] for m in self.required }
-        for m in self.encoder_stats:
-            if m in self.metrics:
-                filtered[m] = self.metrics[m] 
-        return {
-            "Key": self.variant_id,
-            **filtered
-        }
+        r = {}
+        for m in [ *self.required, *self.encoder_stats ]:
+            r[m.value] = self.metrics[m.value]
+        return r
 
 ################################################################################
 
@@ -132,14 +131,14 @@ def hdrtools_input(v:VideoSequence, ref=True, start_frame=0, file_header=0):
     ]
     
     if v.interleaved:
-        opts += ['-p', f'Input{i}Interleaved=0']
-    else:
         opts += ['-p', f'Input{i}Interleaved=1']
+    else:
+        opts += ['-p', f'Input{i}Interleaved=0']
 
     if v.interlaced:
-        opts += ['-p', f'Input{i}Interlaced=0']
-    else:
         opts += ['-p', f'Input{i}Interlaced=1']
+    else:
+        opts += ['-p', f'Input{i}Interlaced=0']
 
     if v.chroma_format == ChromaFormat.YUV:
         opts += ['-p', f'Input{i}ColorSpace=0'] # 0:CM_YCbCr
@@ -172,12 +171,14 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
         eg. size, bitdepth, chroma ...
     """
     # PQ content metrics to be parsed from VTM encoder log
-    assert a.reference.transfer_characteristics != TransferFunction.BT2020_PQ, 'unsupported transfer function'
+    assert a.reference.transfer_characteristics != TransferFunction.BT2020_PQ, f'unsupported transfer function, {TransferFunction.BT2020_PQ}'
 
     ref = a.reference
+    assert ref.chroma_format == ChromaFormat.YUV, f'unsupported chroma format {ChromaFormat.YUV}'
+
     dist = VideoSequence(reconstructed, **ref.properties)
 
-    input0 = hdrtools_input(ref, ref=True, start_frame=a.start_frame)
+    input0 = hdrtools_input(ref, ref=True, start_frame=0) # a.start_frame)
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
     run = [
         '-p', f'EnablehexMetric=1', # the parser collects hex values only
@@ -198,26 +199,22 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
 
     log = reconstructed.with_suffix('.metrics.log')
     run_process(log, *cmd, dry_run=a.dry_run)
+    """
     if a.dry_run:
         return {}
-    
+    """
     data = parse_metrics(log)
     metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
     
     if ref.chroma_format == ChromaFormat.YUV:
         return {
-            Metric.PSNR: ((6 * metrics["PSNR-Y"]) + metrics["PSNR-U"] + metrics["PSNR-V"]) / 8,
-            Metric.SSIM: ((6 * metrics["SSIM-Y"]) + metrics["SSIM-U"] + metrics["SSIM-V"]) / 8,
-            Metric.MSSSIM: ((6 * metrics["MSSSIM-Y"]) + metrics["MSSSIM-U"] + metrics["MSSSIM-V"]) / 8,
-            **metrics
+            Metric.PSNR_Y.value: metrics["PSNR-Y"],
+            Metric.PSNR_U.value: metrics["PSNR-U"],
+            Metric.PSNR_V.value: metrics["PSNR-V"],
+            Metric.MSSSIM.value: ((6 * metrics["MSSSIM-Y"]) + metrics["MSSSIM-U"] + metrics["MSSSIM-V"]) / 8
         }
-    elif ref.chroma_format == ChromaFormat.RGB:
-        return {
-            Metric.PSNR: ( metrics["PSNR-R"] + metrics["PSNR-G"] + metrics["PSNR-B"] ) / 3,
-            Metric.SSIM: ( metrics["SSIM-R"] + metrics["SSIM-G"] + metrics["SSIM-B"] ) / 3,
-            Metric.MSSSIM: ( metrics["MSSSIM-R"] + metrics["MSSSIM-G"] + metrics["MSSSIM-B"] ) / 3,
-            **metrics
-        }
+    else:
+        return metrics
 
 
 ################################################################################
@@ -241,6 +238,53 @@ def vmaf_metrics(a:AnchorTuple, reconstructed:Path, model="version=vmaf_v0.6.1")
     with open(output, "rb") as fp:
         data = json.load(fp)
         return data["pooled_metrics"]["vmaf"]["mean"]
+
+################################################################################
+
+
+def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> VariantMetricSet:
+
+    metrics = hdrtools_metrics(a, r.reconstructed)
+    
+    if a.start_frame == 0:
+        # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
+        # 'enable_transform' (aka --phone-model)
+        # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
+        # and: https://github.com/Netflix/vmaf/blob/master/python/vmaf/script/run_vmaf.py#L80
+        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
+        metrics[Metric.VMAF.value] = vmaf_metrics(a, r, mdl) # TBD. VMAF metric should come with a model definition
+    else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
+        metrics[Metric.VMAF.value] = 0
+
+    """
+    if a.dry_run:
+        return False # VariantMetricSet(vd.variant_id, {})
+    """
+
+    bitstream = a.working_dir / vd.bitstream['URI']
+    metrics[Metric.BITRATE.value] = int(os.path.getsize(bitstream) * 8 / a.duration) * 1e-3
+
+    enc = get_encoder(vd.generation['encoder'])
+
+    enc_log = a.working_dir / vd.generation['log-file']
+    if enc_log.exists():
+        encoder_metrics = enc.encoder_log_metrics(enc_log)
+        metrics = { **metrics, **encoder_metrics }
+    else:
+        print(f'encoder log not found: {enc_log}')
+        metrics[Metric.BITRATELOG.value] = 0
+        metrics[Metric.ENCODETIME.value] = 0
+    
+    dec_log = a.working_dir / vd.reconstruction['log-file']
+    if dec_log.exists():
+        decoder_metrics = enc.decoder_log_metrics(dec_log)
+        metrics = { **metrics, **decoder_metrics }
+    else:
+        print(f'decoder log not found: {dec_log}')
+        metrics[Metric.DECODETIME.value] = 0
+    
+    return VariantMetricSet(vd.variant_id, metrics)
+
 
 
 ################################################################################

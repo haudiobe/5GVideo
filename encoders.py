@@ -1,24 +1,18 @@
 from abc import ABC, abstractclassmethod
 import os
-import json
 import re
+import shlex
 from pathlib import Path
-from typing import List, Callable
-import subprocess
-from abc import ABC, abstractmethod
-from utils import run_process, VideoInfo, ChromaFormat, ChromaSubsampling
+from typing import List
+from utils import run_process, ChromaFormat, ChromaSubsampling
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 __encoders__ = {}
 
 class ReferenceEncoder(ABC):
 
-    # encoder_id = os.getenv("ABC_VERSION", "ABC")
-    # encoder_bin = "ABC_ENCODER"
-    # decoder_bin = "ABC_DECODER"
-
     @abstractclassmethod
-    def get_variant_cli(cls, qp:int) -> str:
+    def get_variant_cli(cls, args:str) -> List[str]:
         raise NotImplementedError()
     
     @abstractclassmethod
@@ -31,17 +25,15 @@ class ReferenceEncoder(ABC):
 
     @classmethod
     def decoder_log_metrics(cls) -> dict:
-        # Metrics.DECODETIME
         return {}
 
     @classmethod
     def encoder_log_metrics(cls) -> dict:
-        # Metrics.BITRATELOG, Metrics.ENCODETIME
         return {}
 
     @classmethod
     def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, dst_dir:Path=None) -> VariantData:
-        
+
         if dst_dir != None:
             assert dst_dir.is_dir()
         else:
@@ -58,7 +50,7 @@ class ReferenceEncoder(ABC):
 
 
     @classmethod
-    def decode_variant(cls, a:AnchorTuple, v:VariantData, dst_dir:Path=None) -> ReconstructionMeta:
+    def decode_variant(cls, a:AnchorTuple, v:VariantData, dst_dir:Path=None, md5=True) -> ReconstructionMeta:
         if dst_dir != None:
             assert dst_dir.is_dir()
         else:
@@ -71,7 +63,7 @@ class ReferenceEncoder(ABC):
         cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
         run_process(logfile, decoder, *cmd, dry_run=a.dry_run)
         
-        return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=(not a.dry_run))
+        return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
     
 
 def register_encoder(cls:ReferenceEncoder):
@@ -148,33 +140,40 @@ class HM(ReferenceEncoder):
     decoder_bin = "HM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, qp:int) -> str:
-        return f'-q {qp}' # -q / --QP
+    def get_variant_cli(cls, args:str) -> List[str]:
+        qp_args = args.replace('-qp', '-q')
+        return shlex.split(qp_args)
     
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction) 
-        args += shlex.split(variant_cli)
+        args += cls.get_variant_cli(variant_cli)
         return args
 
     @classmethod
     def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
-        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}' })
+        """
+        -d,   --OutputBitDepthC        bit depth of YUV output chroma component
+                                 (default: use 0 for native depth)
+        --OutputColourSpaceConvert
+                                 Colour space conversion to apply to input 444
+                                 video. Permitted values are (empty
+                                 string=UNCHANGED) UNCHANGED, YCrCbtoYCbCr or
+                                 GBRtoRGB
+        """
+        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": f'{a.reference.bit_depth}' })
 
 
 @register_encoder
-class SCC(HM):
-    """
-    The reference software for SCC is maintained 
-        in a separate branch of the main HEVC software repository.
-    """
-    encoder_id = os.getenv("SCC_VERSION", "SCC")
-    encoder_bin = "SCC_ENCODER"
-    decoder_bin = "SCC_DECODER"
+class SCM(HM):
+
+    encoder_id = os.getenv("SCM_VERSION", "SCM")
+    encoder_bin = "SCM_ENCODER"
+    decoder_bin = "SCM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, qp:int) -> str:
-        return super().get_variant_cli(qp)
+    def get_variant_cli(cls, args:str) -> List[str]:
+        return super().get_variant_cli(args)
 
     @classmethod
     def get_encoder_cmd(cls, *args, **kwargs):
@@ -194,13 +193,14 @@ class VTM(ReferenceEncoder):
     decoder_bin = "VTM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, qp:int) -> str:
-        return f'-q {qp}' # -q / --QP
+    def get_variant_cli(cls, args:str) -> List[str]:
+        qp_args = args.replace('-qp', '-q')
+        return shlex.split(qp_args)
 
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction) 
-        args += shlex.split(variant_cli)
+        args += cls.get_variant_cli(variant_cli)
         return args
 
     @classmethod
@@ -217,8 +217,10 @@ class JM(ReferenceEncoder):
     decoder_bin = "JM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, qp:int) -> str:
-        return f'-p QPISlice={qp} -p QPPSlice={qp}'
+    def get_variant_cli(cls, args:str) -> List[str]:
+        qp = args.split()[-1]
+        qp_args = f'-p QPISlice={qp} -p QPPSlice={qp}'
+        return shlex.split(qp_args)
 
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
@@ -262,7 +264,7 @@ class JM(ReferenceEncoder):
         if reconstruction != None:
             args += ["-p", f'ReconFile={reconstruction}']
 
-        args += shlex.split(variant_cli)
+        args += cls.get_variant_cli(variant_cli)
 
         return args
 
@@ -281,8 +283,9 @@ class ETM(ReferenceEncoder):
     decoder_bin = "ETM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, qp:int) -> str:
-        return f'-q {qp}' # -q / --QP
+    def get_variant_cli(cls, args:str) -> List[str]:
+        qp_args = args.replace('-qp', '-q')
+        return shlex.split(qp_args)
 
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
@@ -312,7 +315,7 @@ class ETM(ReferenceEncoder):
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
             args += ['-r', reconstruction ]
         
-        args += shlex.split(variant_cli)
+        args += cls.get_variant_cli(variant_cli)
         
         return args
 

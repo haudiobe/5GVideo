@@ -1,10 +1,9 @@
-import os
 import subprocess
 import json
+import hashlib
+
 from pathlib import Path
-from enum import Enum, IntEnum
-from typing import List
-from fractions import Fraction
+from enum import Enum
 
 class ColourPrimaries(Enum):
     BT_709 = "1"
@@ -36,9 +35,20 @@ def from_enum(cls:Enum, value):
         if m.value == value:
             return m
 
-def run_process(log:str, *cmd, dry_run=False):
-    if dry_run:
+def md5_checksum(p:Path):
+    md5 = hashlib.md5()
+    block_size = 128 * md5.block_size
+    with open(p, 'rb') as f:
+        chunk = f.read(block_size)
+        while chunk:
+            md5.update(chunk)
+            chunk = f.read(block_size)
+        return md5.hexdigest()
+
+def run_process(log:str, *cmd, dry_run=False, verbose=True):
+    if verbose:
         print(" ".join(cmd))
+    if dry_run:
         return
     with open(log, 'w') as logfile:
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:

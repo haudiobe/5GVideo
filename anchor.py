@@ -1,31 +1,30 @@
-import os
-import re
 import json
-import hashlib
-
+import csv
 from pathlib import Path
-from enum import Enum
-from typing import List, Dict, Generator, Tuple
+from typing import Dict, Generator, Tuple, Iterable
 
-from utils import VideoSequence, VideoInfo
+from utils import VideoSequence, md5_checksum
 
-RE_WORKING_DIR = r'^{ANCHOR_DIR}'
+ENCODING = 'utf-8-sig'
 
+# scenario/anchors.csv
+class AnchorList:
+    KEY = '#Key' # directory where anchor is stored
+    CLAUSE = 'Clause'
+    REF_SEQ = 'Reference Sequence'
+    REF_ENC = 'Reference_Encoder'
+    CFG = 'Configuration'
+    VARIANTS = 'Variations'
+    VARIANT_KEY = 'Anchor_Key' # template for variant json filename
 
-def _preproc(param, anchor:'AnchorTuple'):
-    if type(param) == str:
-        return re.sub(RE_WORKING_DIR, f'{anchor.working_dir}', param)
-    return param
+# scenario/sequences.csv
+class RefSequenceList:
+    KEY = '#Key'
+    NAME = 'Name'
+    REF = 'Reference'
+    LOC = 'Location'
+    DUR = 'Duration'
 
-def md5_checksum(p:Path):
-    md5 = hashlib.md5()
-    block_size = 128 * md5.block_size
-    with open(p, 'rb') as f:
-        chunk = f.read(block_size)
-        while chunk:
-            md5.update(chunk)
-            chunk = f.read(block_size)
-        return md5.hexdigest()
 
 class ReconstructionMeta:
     def __init__(self, decoder_id:str, reconstructed:Path, decoder_log:Path, md5=True):
@@ -37,13 +36,49 @@ class ReconstructionMeta:
             self.reconstructed_md5 = None
         self.decoder_log = decoder_log
 
-class BitstreamNotFound(Exception):
-    pass
-
-class MetricsNotFound(Exception):
-    pass
 
 class VariantData:
+
+    @classmethod
+    def load(cls, fp:Path) -> 'VariantData':
+        assert fp.exists()
+        with open(fp, 'r') as fo:
+            data = json.load(fo)
+            generation = data.get("Generation", None)
+            bitstream = data.get("Bitstream", None)
+            reconstruction = data.get("Reconstruction", None)
+            metrics = data.get("Metrics", None)
+            if metrics != None:
+                for k, v in metrics.items():
+                    metrics[k] = float(v)
+            verification = data.get("Verification", None)
+            contact = data.get("contact", None)
+            copyright = data.get("copyRight", None)
+            return VariantData(generation, bitstream, reconstruction, metrics, verification, contact, copyright)
+
+    @classmethod
+    def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, bitstream_fp:Path, encoder_log:Path) -> 'VariantData':
+        assert bitstream_fp.exists(), f'{bitstream_fp} not found'
+        generation = {
+            "key": variant_id,
+            "sequence": a.reference.path.name,
+            "encoder": a.encoder_id,
+            "config-file": a.encoder_cfg,
+            "variant": variant_cli,
+            "log-file": encoder_log.name
+        }
+        bitstream = {
+            "key": variant_id,
+            "URI": str(bitstream_fp),
+            "md5": md5_checksum(bitstream_fp),
+            "size": bitstream_fp.stat().st_size
+        }
+        contact = {
+            'Company': a.reference.contact['Company'],
+            'e-mail': a.reference.contact['e-mail']
+        }
+        copyright = a.reference.copyright
+        return VariantData(generation, bitstream, None, None, None, contact, copyright)
 
     def __init__(self, generation:dict=None, bitstream:dict=None, reconstruction:dict=None, metrics:dict=None, verification:dict=None, contact:dict=None, copyright:str=''):
         self._generation = generation
@@ -114,7 +149,7 @@ class VariantData:
         if b == None:
             self._metrics = None
         keys = [ "Bitrate", "BitrateLog", "DecodeTime", "EncodeTime", "MS_SSIM", "UPSNR", "VMAF", "VPSNR", "YPSNR" ]
-        self._metrics = { k: b[k] for k in keys }
+        self._metrics = { k: float(b[k]) for k in keys }
 
     #######################################
 
@@ -189,53 +224,8 @@ class VariantData:
         with open(fp, 'w') as fo:
             fo.write(data)
 
-    @classmethod
-    def load(cls, fp:Path) -> 'VariantData':
-        assert fp.exists()
-        with open(fp, 'r') as fo:
-            data = json.load(fo)
-            generation = data.get("Generation", None)
-            bitstream = data.get("Bitstream", None)
-            reconstruction = data.get("Reconstruction", None)
-            metrics = data.get("Metrics", None)
-            verification = data.get("Verification", None)
-            contact = data.get("contact", None)
-            copyright = data.get("copyRight", None)
-            return VariantData(generation, bitstream, reconstruction, metrics, verification, contact, copyright)
 
-    @classmethod
-    def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, bitstream_fp:Path, encoder_log:Path) -> 'VariantData':
-        assert bitstream_fp.exists(), f'{bitstream_fp} not found'
-        generation = {
-            "key": variant_id,
-            "sequence": a.reference.path.name,
-            "encoder": a.encoder_id,
-            "config-file": a.encoder_cfg,
-            "variant": variant_cli,
-            "log-file": encoder_log.name
-        }
-        bitstream = {
-            "key": variant_id,
-            "URI": str(bitstream_fp),
-            "md5": md5_checksum(bitstream_fp),
-            "size": bitstream_fp.stat().st_size
-        }
-        contact = {
-            'Company': a.reference.contact['Company'],
-            'e-mail': a.reference.contact['e-mail']
-        }
-        copyright = a.reference.copyright
-        return VariantData(generation, bitstream, None, None, None, contact, copyright)
-
-
-def resolve_path(f:str, rootdir:Path):
-    p = Path(f)
-    if p.is_absolute():
-        return p
-    r = rootdir / f
-    if not r.exists():
-        raise Exception(f'file not found {r}')
-    return r
+#########################################################################################################
 
 
 class AnchorTuple:
@@ -260,8 +250,8 @@ class AnchorTuple:
         for v in data:
             assert type(v) == int, assertion
         self._variants = data
-
         self.dry_run = dry_run
+
 
     @property
     def working_dir(self):
@@ -309,3 +299,42 @@ class AnchorTuple:
     @property
     def anchor_key(self):
         return self._anchor_key
+
+
+#########################################################################################################
+
+
+def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
+    refs = {}
+    with open(reference_list, 'r', encoding=ENCODING) as fo:
+        for row in csv.DictReader(fo):
+            loc = row[RefSequenceList.LOC]
+            meta = root_dir / loc / f'{loc}.json'
+            vs = VideoSequence.from_sidecar_metadata(meta)
+            assert (vs.frame_count / vs.frame_rate) == float(row[RefSequenceList.DUR]), f'(frame_count / frame_rate) != expected duration'
+            refs[row[RefSequenceList.KEY]] = vs
+    return refs
+
+def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=Path('../CFG')) -> Iterable[AnchorTuple]:
+    with open(anchor_list, 'r', encoding=ENCODING) as fo:
+        for row in csv.DictReader(fo):
+            seq = refs[row[AnchorList.REF_SEQ]]
+            description = row[AnchorList.CLAUSE]
+            encoder_id = row[AnchorList.REF_ENC] # eg. HM16.22, 
+            encoder_cfg = cfg_dir / (str(row[AnchorList.CFG]).lower() + '.cfg') # eg. S3-HM-01, no directory context specified
+            variants = row[AnchorList.VARIANTS]
+            anchor_dir = scenario_dir / row[AnchorList.KEY]
+            anchor_key = row[AnchorList.VARIANT_KEY]
+            yield AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, anchor_key, description, seq.start_frame, seq.frame_count)
+
+def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
+    """ 
+    yields (a.working_dir/variant.json, VariantData)
+    """
+    for variant_id, _ in a.iter_variants():
+        vfp = a.working_dir / f'{variant_id}.json'
+        data = None
+        if vfp.exists():
+            data = VariantData.load(vfp)
+        yield vfp, data
+        
