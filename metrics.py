@@ -246,7 +246,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
 
     metrics = hdrtools_metrics(a, r.reconstructed)
     
-    if a.start_frame == 0:
+    if (a.start_frame -1) == 0:
         # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
         # 'enable_transform' (aka --phone-model)
         # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
