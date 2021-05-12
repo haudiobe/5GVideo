@@ -75,5 +75,16 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
   make
 ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
 
+
+## HM SCC extension ###
+RUN cp /home/deps/HM /home/deps/SCM
+RUN cd ./SCM && rm -rf ./bin/* && rm -rf ./build/* && git checkout ${SCM_VERSION}
+RUN cd ./SCM/build && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release && \
+  make -j
+ENV SCM_ENCODER=/home/deps/SCM/bin/TAppEncoderStatic
+ENV SCM_DECODER=/home/deps/SCM/bin/TDecoderEncoderStatic
+
+
 WORKDIR /home/5GVideo
 COPY ./*.py ./
