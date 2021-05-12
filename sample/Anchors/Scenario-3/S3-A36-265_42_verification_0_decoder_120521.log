@@ -1,0 +1,6 @@
+= S3-A36-265_42 | decoder verification =====
+md5 mismatch - expected:unknown - result: None
+YPSNR - expected:33.97 - result: 33.95419236967061
+UPSNR - expected:39.79 - result: 39.75102377179994
+VPSNR - expected:42.69 - result: 42.671222506869434
+MS_SSIM - expected:0.9918 - result: 0.9999983883649111

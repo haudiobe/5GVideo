@@ -1,0 +1,53 @@
+{
+    "Bitstream": {
+        "URI": "./S3-A36-265_37.bin",
+        "key": "S3-A36-265_37",
+        "md5": "b75c76a8a17519e57656ad5a3d3e36ab",
+        "size": 555579
+    },
+    "Generation": {
+        "config-file": "SCC-01.cfg",
+        "encoder": "SCM8.8",
+        "key": "S3-R04",
+        "log-file": "encoder_S3-A36-265_37.log",
+        "sequence": "MovingText2-FullHD-8bit.json",
+        "variant": "-qp 37"
+    },
+    "Reconstruction": {
+        "decoder": "SCM8.8",
+        "log-file": "decoder_S3-A36-265_37.log",
+        "md5": "unknown"
+    },
+    "Metrics": {
+        "Bitrate": 444.46,
+        "BitrateLog": 417.1,
+        "DecodeTime": 33.32,
+        "EncodeTime": 16170.25,
+        "MS_SSIM": 0.996,
+        "UPSNR": 41.61,
+        "VMAF": 99.99,
+        "VPSNR": 44.39,
+        "YPSNR": 37.87
+    },
+    "Verification": {
+        "date": "na",
+        "verified": "false",
+        "Reports": [
+            {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": "12/05/21",
+                "meeting": "",
+                "input": "",
+                "status": "failed",
+                "type": "decoder",
+                "information": "S3-A36-265_37_verification_0_decoder_120521.log"
+            }
+        ]
+    },
+    "copyRight": "The MovingText2 video sequence has been produced for the purpose of this study on the characterization of video codecs in 3GPP.",
+    "Contact": null
+}
