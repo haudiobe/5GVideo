@@ -36,6 +36,12 @@ class ReconstructionMeta:
             self.reconstructed_md5 = None
         self.decoder_log = decoder_log
 
+    def to_dict(self) -> dict:
+        return {
+            "decoder": self.decoder_id,
+            "log-file": self.decoder_log.name,
+            "md5": self.reconstructed_md5
+        }
 
 class VariantData:
 

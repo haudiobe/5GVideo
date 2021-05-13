@@ -82,7 +82,7 @@ decode and compute metrics for all anchors in Scenario-3:
 **Notes**
 
 * reference sequences and encoder configuration should be accessible from the same relative path, relative to the target scenario. 
-* the scenario directory must contain `anchors.csv`, `reference-sequences.csv`
+* the scenario directory must contain `anchors.csv`, `reference-sequence.csv`
 
 ## anchor generation
 
@@ -99,7 +99,7 @@ create.py --scenario_dir /data/Anchors/Scenario-3 encoder
 **Notes**
 
 * reference sequences and encoder configuration should be accessible from the same relative path, relative to the target scenario. 
-* the scenario directory must contain `anchors.csv`, `reference-sequences.csv`
+* the scenario directory must contain `anchors.csv`, `reference-sequence.csv`
 
 
 # environment variables 
@@ -143,9 +143,9 @@ HDRMETRICS_TOOL=/path/to/HDRTools/build/bin/HDRMetrics
 ```
 
 [VMAF](https://github.com/Netflix/vmaf)
-add your vmaf lib to your path
 ```
-PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
+VMAF_EXE=/path/to/vmaf/libvmaf/build/tools/vmaf
+VMAF_MODEL=path=/path/to/vmaf/model/vmaf_v0.6.1.json:enable_transform
 ```
 
 # Raw video sequence description
