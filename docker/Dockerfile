@@ -6,7 +6,7 @@ ARG VTM_VERSION=tags/VTM-11.0
 # adds CMakelist.txt on top of tags/JM-19.0
 ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
 ARG HDRTOOLS_VERSION=tags/v0.19.1
-ARG VMAF_VERSION=tags/v2.0.0
+ARG VMAF_VERSION=tags/v2.1.1
 # build HDRTOOLS without JM_PSNR C flag
 ARG jm_psnr_undef
 
@@ -75,6 +75,9 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
   cd ./vmaf && git checkout ${VMAF_VERSION} && \
   make
 ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
+ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform
+ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmaf
+
 
 
 ## HM SCC extension ###

@@ -255,7 +255,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
         # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
         # and: https://github.com/Netflix/vmaf/blob/master/python/vmaf/script/run_vmaf.py#L80
         mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
-        metrics[Metric.VMAF.value] = vmaf_metrics(a, r, mdl) # TBD. VMAF metric should come with a model definition
+        metrics[Metric.VMAF.value] = vmaf_metrics(a, r.reconstructed, mdl) # TBD. VMAF metric should come with a model definition
     else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
         metrics[Metric.VMAF.value] = 0
 
@@ -301,7 +301,7 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
         for vf, vd in iter_variants(a):
             data = { k: vd.metrics[k] for k in fieldnames }
             writer.writerow({ "key": vd.variant_id, **data })
-            
+
 
 ################################################################################
 
