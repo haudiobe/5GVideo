@@ -1,33 +1,33 @@
 {
     "Bitstream": {
-        "URI": "./S3-A36-265_32.bin",
-        "key": "S3-A36-265_32",
-        "md5": "d9fc3cffc6f63e4ea9b5332154ac1f4a",
-        "size": 908917
+        "URI": "./S3-A36-265_42.bin",
+        "key": "S3-A36-265_42",
+        "md5": "db3c0d9f7a52f471b209a2ba906e0e13",
+        "size": 354445
     },
     "Generation": {
         "config-file": "SCC-01.cfg",
         "encoder": "SCM8.8",
         "key": "S3-R04",
-        "log-file": "encoder_S3-A36-265_32.log",
+        "log-file": "encoder_S3-A36-265_42.log",
         "sequence": "MovingText2-FullHD-8bit.json",
-        "variant": "-qp 32"
+        "variant": "-qp 42"
     },
     "Reconstruction": {
         "decoder": "SCM8.8",
-        "log-file": "decoder_S3-A36-265_32.log",
+        "log-file": "decoder_S3-A36-265_42.log",
         "md5": "unknown"
     },
     "Metrics": {
-        "Bitrate": 727.13,
-        "BitrateLog": 699.77,
-        "DecodeTime": 34.42,
-        "EncodeTime": 19022.77,
-        "MS_SSIM": 0.9978,
-        "UPSNR": 44.11,
-        "VMAF": 99.99,
-        "VPSNR": 46.9,
-        "YPSNR": 41.51
+        "Bitrate": 283.56,
+        "BitrateLog": 256.2,
+        "DecodeTime": 32.58,
+        "EncodeTime": 14684.46,
+        "MS_SSIM": 0.9918,
+        "UPSNR": 39.79,
+        "VMAF": 99.98,
+        "VPSNR": 42.69,
+        "YPSNR": 33.97
     },
     "Verification": {
         "date": "na",
@@ -44,7 +44,7 @@
                 "input": "",
                 "status": "failed",
                 "type": "decoder",
-                "information": "S3-A36-265_32_verification_0_decoder_120521.log"
+                "information": "S3-A36-265_42_verification_1_decoder_130521.log"
             }
         ]
     },

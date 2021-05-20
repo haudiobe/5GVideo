@@ -103,17 +103,16 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     else:
         tmp = tmp_dir / vf.parent.name
 
-    tmp.mkdir(exist_ok=True)
+    if not a.dry_run:
+        tmp.mkdir(exist_ok=True)
 
     compute_md5 = vd.reconstruction['md5'] != 'unknown'
     r = dec.decode_variant(a, vd, tmp, md5=compute_md5)
     
     metrics_new = compute_metrics(a, vd, r).to_dict()
 
-    """
     if a.dry_run:
         return False, "/!\\ dry run"
-    """
 
     md5_new = r.reconstructed_md5
     md5_ref = vd.reconstruction['md5']
@@ -191,9 +190,14 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
     else:
         tmp = tmp_dir / vf.stem
 
-    tmp.mkdir(exist_ok=True)
+    if not a.dry_run:
+        tmp.mkdir(exist_ok=True)
 
     vd_new = enc.encode_variant(a, vd.variant_id, vd.variant_cli, tmp)
+
+    if a.dry_run:
+        return True, None
+
     md5_new = vd_new.bitstream["md5"]
     md5_ref = vd.bitstream["md5"]
     
@@ -201,7 +205,7 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
         shutil.rmtree(tmp)
 
     if md5_new == md5_ref:
-        return True
+        return True, None
     else:
         return False, f'invalid md5 - expected:{md5_new} - found:{md5_ref}'
 
@@ -212,6 +216,8 @@ def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=Non
     for vf, vd in iter_variants(a):
         assert vd != None, f'variant data not found:{vf}'
         success, log_data = verify_variant_bitstream(a, vd, vf, tmp_dir=tmp_dir)
+        if a.dry_run:
+            continue
         save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
@@ -239,13 +245,12 @@ def verify(verification_type:AnchorVerification, anchors:Iterable[AnchorTuple], 
             batch.append(a)
         else:
             preflight_errors[a] = err
-            print(f'{a} - error - can not run verification:\n * {err}')
+            print(f'\n# {a.anchor_key} - error - can not run verification:\n{err}\n')
 
     for a in batch:
         a.dry_run = dry_run
         errors = verification_fn(a, template, tmp_dir=tmp_dir)
-        print(f'{a} - error - verification failed:\n * {errors}')
-
+        print(f'\n# {a.anchor_key} - error - verification failed:\n#\t{errors}')
 
 
 def main():

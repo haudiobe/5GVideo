@@ -202,10 +202,7 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
 
     log = reconstructed.with_suffix('.metrics.log')
     run_process(log, *cmd, dry_run=a.dry_run)
-    """
-    if a.dry_run:
-        return {}
-    """
+
     data = parse_metrics(log)
     metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
     
@@ -274,7 +271,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
         encoder_metrics = enc.encoder_log_metrics(enc_log)
         metrics = { **metrics, **encoder_metrics }
     else:
-        print(f'encoder log not found: {enc_log}')
+        print(f'#\tencoder log not found: {enc_log}')
         metrics[Metric.BITRATELOG.value] = 0
         metrics[Metric.ENCODETIME.value] = 0
     
@@ -283,7 +280,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
         decoder_metrics = enc.decoder_log_metrics(dec_log)
         metrics = { **metrics, **decoder_metrics }
     else:
-        print(f'decoder log not found: {dec_log}')
+        print(f'#\tdecoder log not found: {dec_log}')
         metrics[Metric.DECODETIME.value] = 0
     
     return VariantMetricSet(vd.variant_id, metrics)

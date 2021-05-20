@@ -4,3 +4,6 @@ YPSNR - expected:41.51 - result: 41.42840563955484
 UPSNR - expected:44.11 - result: 44.026379055608565
 VPSNR - expected:46.9 - result: 46.70930230703463
 MS_SSIM - expected:0.9978 - result: 0.9999999847883979
+VMAF - expected:99.99 - result: 100.0
+EncodeTime - expected:19022.77 - result: 0
+DecodeTime - expected:34.42 - result: 0
