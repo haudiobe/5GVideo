@@ -1,0 +1,53 @@
+{
+    "Bitstream": {
+        "URI": "./S3-A59-265_42.bin",
+        "key": "S3-A59-265_42",
+        "md5": "9086a7d4a6c3ff4d5b84795f4b8a33c9",
+        "size": 183895
+    },
+    "Generation": {
+        "config-file": "SCC-02.cfg",
+        "encoder": "SCM8.8",
+        "key": "S3-R11",
+        "log-file": "encoder_S3-A59-265_42.log",
+        "sequence": "GraphicsMixSimple-FullHD-10bit.json",
+        "variant": "-qp 42"
+    },
+    "Reconstruction": {
+        "decoder": "SCM8.8",
+        "log-file": "decoder_S3-A59-265_42.log",
+        "md5": "unknown"
+    },
+    "Metrics": {
+        "Bitrate": 147.12,
+        "BitrateLog": 159.83,
+        "DecodeTime": 20.49,
+        "EncodeTime": 8967.26,
+        "MS_SSIM": 0.9804,
+        "UPSNR": 39.46,
+        "VMAF": 74.01,
+        "VPSNR": 39.22,
+        "YPSNR": 33.78
+    },
+    "Verification": {
+        "date": "na",
+        "verified": "false",
+        "Reports": [
+            {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": "20/05/21",
+                "meeting": "",
+                "input": "",
+                "status": "failed",
+                "type": "decoder",
+                "information": "S3-A59-265_42_verification_0_decoder_200521.log"
+            }
+        ]
+    },
+    "copyRight": "The GraphicsMixSimple video sequence has been produced for the purpose of this study on the characterization of video codecs in 3GPP.",
+    "Contact": null
+}
