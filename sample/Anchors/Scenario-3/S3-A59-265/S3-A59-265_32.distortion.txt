@@ -1,1 +1,0 @@
-/data/ReferenceSequences/GraphicsMixSimple-FullHD-10bit/GraphicsMixSimple-FullHD-10bit.yuv /data/Anchors/Scenario-3/S3-A59-265.tmp/S3-A59-265_32.yuv 600 0.369156 
