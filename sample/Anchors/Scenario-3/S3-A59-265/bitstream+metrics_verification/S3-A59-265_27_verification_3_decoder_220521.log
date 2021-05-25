@@ -1,0 +1,9 @@
+= S3-A59-265_27 | decoder verification =====
+md5 mismatch - expected:unknown - result: None
+YPSNR - expected:46.26 - result: 46.26361524641629
+UPSNR - expected:46.98 - result: 46.97802541745172
+VPSNR - expected:46.88 - result: 46.88158856063934
+MS_SSIM - expected:0.9979 - result: 0.9933135381340981
+VMAF - expected:94.77 - result: 0
+EncodeTime - expected:8934.79 - result: 0
+DecodeTime - expected:21.18 - result: 0

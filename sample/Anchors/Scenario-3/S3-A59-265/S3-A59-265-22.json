@@ -45,6 +45,45 @@
                 "status": "failed",
                 "type": "decoder",
                 "information": "S3-A59-265_22_verification_0_decoder_200521.log"
+            },
+            {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": "21/05/21",
+                "meeting": "",
+                "input": "",
+                "status": "failed",
+                "type": "decoder",
+                "information": "S3-A59-265_22_verification_1_decoder_210521.log"
+            },
+            {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": "21/05/21",
+                "meeting": "",
+                "input": "",
+                "status": "failed",
+                "type": "bistream",
+                "information": "S3-A59-265_22_verification_2_bistream_210521.log"
+            },
+            {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": "22/05/21",
+                "meeting": "",
+                "input": "",
+                "status": "failed",
+                "type": "decoder",
+                "information": "S3-A59-265_22_verification_3_decoder_220521.log"
             }
         ]
     },
