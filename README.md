@@ -63,7 +63,7 @@ verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
 ```
 
 
-**Report template**
+## Report template
 
 the `--template` argument can be used to provide the path to a json template for the report (contact info, etc ...), eg.:
 ```
@@ -83,7 +83,7 @@ with `./report-template.json` :
 }
 ```
 
-**CSV bundling of verification reports**
+## CSV bundling of verification reports
 
 After running verification steps, the result gets stored in the anchor json.
 to export the most recent verification report to csv, use the following commands :
