@@ -29,19 +29,20 @@ class AnchorVerificationReport:
 
     @classmethod
     def from_json_dict(cls, report):
+        
         r = cls()
-        r.verification_date = report["date"]
 
         contact = report["Contact"]
-        r.contact_company = contact["Company"]
-        r.contact_name = contact["name"]
-        r.contact_e_mail = contact["e-mail"]
+        r.contact_company = contact.get("Company", None)
+        r.contact_e_mail = contact.get("e-mail", None)
 
-        r.meeting = report["meeting"]
-        r.input_doc = report["input"]
-        r.status = report["status"]
-        r.type = report["type"]
-        r.information = report["information"]
+        r.meeting = report.get("meeting", None)
+        r.input_doc = report.get("input", None)
+        r.status = report.get("status", None)
+        r.type = report.get("type", None)
+        r.information = report.get("information", None)
+
+        r.verification_date = report.get("date", None)
 
         return r
 
@@ -393,7 +394,6 @@ def main():
         keys = [args.key]
 
     refs = reference_sequences_dict(references_csv, sequences_dir)
-
     anchors = iter_anchors(anchors_csv, refs, scenario_dir, cfg_dir, keys=keys)
 
     print('# PROCESSING', len(anchors), 'anchors', '#'*32)
@@ -402,11 +402,11 @@ def main():
 
     template = None
     if args.template:
-        with open(template, 'r') as fo:
-            template = json.loads(fo)
+        with open(args.template, 'r') as fo:
+            template = json.load(fo)
     
     if verification_type == AnchorVerificationCmd.REPORT:
-        fp = sequences_dir / 'verification_report.csv'
+        fp = scenario_dir / 'verification_report.csv'
         with open(fp, 'w') as fo:
             print('saving to: ', fp)
             dw = AnchorVerificationReport.get_csv_writer(fo)
