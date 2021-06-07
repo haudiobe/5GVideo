@@ -80,6 +80,14 @@ class VideoInfo:
         self.transfer_characteristics = from_enum(TransferFunction, properties.get('transferCharacteristics', None))
         self.matrix_coefficients = from_enum(MatrixCoefficients, properties.get('matrixCoefficients', None))
         self.sar = properties.get('sampleAspectRatio', None)
+
+        self.video_full_range = properties.get('videoFullRangeFlag', None)
+        self.chroma_sample_loc_type = properties.get('chromaSampleLocType', None)
+
+        self.hdr_master_display = properties.get('HDRmasterDisplay', None)
+        self.hdr_max_cll = properties.get('HDRmaxCLL', None)
+        self.hdr_max_fall = properties.get('HDRmaxFALL', None)
+
         self.is_valid_sequence()
 
     def is_valid_sequence(self):
@@ -163,5 +171,3 @@ class VideoSequence(VideoInfo):
         contact = data.get('Contact', None )
         cc = data.get('copyRight', None )
         return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
-
-            

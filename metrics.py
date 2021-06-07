@@ -46,13 +46,19 @@ class VariantMetricSet:
         Metric.DECODETIME
     ]
     
-    def __init__(self, variant_id:str, metrics:dict):
+    def __init__(self, variant_id:str, metrics:dict=None):
         self.variant_id = variant_id
+        
+        if metrics == None: # None is for dry run
+            self.metrics = {}
+            return
+
         for m in self.required:
             assert m.value in metrics, f'missing required metric {m}'
         for m in self.encoder_stats:
             if not (m.value in metrics):
                 print('missing encoder stat: ', m)
+
         self.metrics = metrics
 
     @classmethod
@@ -65,7 +71,7 @@ class VariantMetricSet:
     def to_dict(self):
         r = {}
         for m in [ *self.required, *self.encoder_stats ]:
-            r[m.value] = self.metrics[m.value]
+            r[m.value] = self.metrics.get(m.value, None)
         return r
 
 ################################################################################
@@ -202,6 +208,13 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
 
     log = reconstructed.with_suffix('.metrics.log')
     run_process(log, *cmd, dry_run=a.dry_run)
+    if a.dry_run:
+        return {
+            Metric.PSNR_Y.value: -1,
+            Metric.PSNR_U.value: -1,
+            Metric.PSNR_V.value: -1,
+            Metric.MSSSIM.value: -1
+        }
 
     data = parse_metrics(log)
     metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
@@ -211,7 +224,7 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
             Metric.PSNR_Y.value: metrics["PSNR-Y"],
             Metric.PSNR_U.value: metrics["PSNR-U"],
             Metric.PSNR_V.value: metrics["PSNR-V"],
-            Metric.MSSSIM.value: ((6 * metrics["MSSSIM-Y"]) + metrics["MSSSIM-U"] + metrics["MSSSIM-V"]) / 8
+            Metric.MSSSIM.value: metrics["MSSSIM-Y"]
         }
     else:
         return metrics
@@ -242,11 +255,11 @@ def vmaf_metrics(a:AnchorTuple, reconstructed:Path, model="version=vmaf_v0.6.1")
 ################################################################################
 
 
-def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> VariantMetricSet:
+def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:bool=True) -> VariantMetricSet:
 
     metrics = hdrtools_metrics(a, r.reconstructed)
     
-    if (a.start_frame -1) == 0:
+    if extra and (a.start_frame-1 == 0):
         # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
         # 'enable_transform' (aka --phone-model)
         # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
@@ -256,10 +269,8 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta) -> Vari
     else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
         metrics[Metric.VMAF.value] = 0
 
-    """
     if a.dry_run:
-        return False # VariantMetricSet(vd.variant_id, {})
-    """
+        return VariantMetricSet(vd.variant_id, None)
 
     bitstream = a.working_dir / vd.bitstream['URI']
     metrics[Metric.BITRATE.value] = int(os.path.getsize(bitstream) * 8 / a.duration) * 1e-3

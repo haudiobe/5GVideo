@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import argparse
+from os import error
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone 
@@ -13,11 +14,12 @@ from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anch
 from encoders import get_encoder
 from metrics import Metric, VariantMetricSet, compute_metrics, anchor_metrics_to_csv
 
+DEBUG_FIRST_VARIANT_ONLY=False 
+DEBUG_SKIP_VMAF=False
 
 class AnchorVerification(Enum):
     BITSTREAM = 1
     DECODER = 2
-
 
 def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerification, success:bool, log_data:List[str]=None, template:dict=None):
     report = template
@@ -109,7 +111,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     compute_md5 = vd.reconstruction['md5'] != 'unknown'
     r = dec.decode_variant(a, vd, tmp, md5=compute_md5)
     
-    metrics_new = compute_metrics(a, vd, r).to_dict()
+    metrics_new = compute_metrics(a, vd, r, extra=(not DEBUG_SKIP_VMAF)).to_dict()
 
     if a.dry_run:
         return False, "/!\\ dry run"
@@ -136,17 +138,22 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     return success, log
 
 
-def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None):
+def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) -> Iterable[Iterable[str]]:
     assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
     a_errors = []
     for vf, vd in iter_variants(a):
+        print('-'*128)
         assert vd != None, f'variant data not found:{vf}'
         success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=tmp_dir)
-        save_verification_report(vf, vd, AnchorVerification.DECODER, success, log_data, template=template)
+        if not a.dry_run:
+            save_verification_report(vf, vd, AnchorVerification.DECODER, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
+        if DEBUG_FIRST_VARIANT_ONLY:
+            break
     if len(a_errors) == 0:
         anchor_metrics_to_csv(a)
+    print('-'*128)
     return a_errors
 
 
@@ -210,17 +217,20 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
         return False, f'invalid md5 - expected:{md5_new} - found:{md5_ref}'
 
 
-def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=None):
+def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) -> Iterable[Iterable[str]]:
     assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
     a_errors = []
     for vf, vd in iter_variants(a):
         assert vd != None, f'variant data not found:{vf}'
+        print('-'*128)
         success, log_data = verify_variant_bitstream(a, vd, vf, tmp_dir=tmp_dir)
-        if a.dry_run:
-            continue
-        save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, template=template)
+        if not a.dry_run:
+            save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
+        if DEBUG_FIRST_VARIANT_ONLY:
+            break
+    print('-'*128)
     return a_errors
 
 
@@ -245,14 +255,19 @@ def verify(verification_type:AnchorVerification, anchors:Iterable[AnchorTuple], 
             batch.append(a)
         else:
             preflight_errors[a] = err
-            print(f'\n# {a.anchor_key} - error - can not run verification:\n{err}\n')
+            print(f'# {a.anchor_key} - error - can not run verification:\n#{err}\n')
+            batch.append(a)
 
     for a in batch:
         a.dry_run = dry_run
         errors = verification_fn(a, template, tmp_dir=tmp_dir)
-        print(f'\n# {a.anchor_key} - error - verification failed:\n#\t{errors}')
+        print(f'# {a.anchor_key} verification complete')
+        print(f'# {len(errors)} errors')
+        if len(errors) and not dry_run:
+            for err in errors:
+                print(f'#\t* {err}')
 
-
+        
 def main():
     
     parser = argparse.ArgumentParser()
@@ -307,7 +322,8 @@ def main():
     refs = reference_sequences_dict(references_csv, sequences_dir)
 
     anchors = iter_anchors(anchors_csv, refs, scenario_dir, cfg_dir, keys=keys)
-    print(len(anchors), 'anchors')
+
+    print('# PROCESSING', len(anchors), 'anchors', '#'*32)
     if len(anchors) == 0:
         return
 

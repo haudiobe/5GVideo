@@ -41,11 +41,14 @@ class ReferenceEncoder(ABC):
 
         encoder = get_env(cls.encoder_bin)
         bitstream = dst_dir / f'{variant_id}.bin'
+        reconstruction = dst_dir / f'{variant_id}.rec.yuv'
         logfile = dst_dir / f'{variant_id}.encoder.log'
         
-        cmd = cls.get_encoder_cmd(a, variant_cli, bitstream)
+        cmd = cls.get_encoder_cmd(a, variant_cli, bitstream, reconstruction)
         run_process(logfile, encoder, *cmd, dry_run=a.dry_run)
-        
+
+        if a.dry_run:
+            return VariantData()
         return VariantData.new(a, variant_id, variant_cli, bitstream, logfile)
 
 
@@ -112,7 +115,7 @@ def get_env(var:str):
 
 
 
-def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=None):
+def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=None, extra:bool=False):
     """
     HM & VTM softwares share a common set of options
     """
@@ -127,8 +130,50 @@ def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=No
         "--InputBitDepth": f'{a.reference.bit_depth}' ,
         "--InputBitDepthC": f'{a.reference.bit_depth}' ,
         "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}' }
+
+    if not a.reference.video_full_range:
+        # If 1 then clip input video to the Rec. 709 Range on loading 
+        #   when Internal-BitDepth is less than MSBExtendedBitDepth.
+        cmd["--ClipInputVideoToRec709Range"] = 1
+    else:
+        cmd["--ClipInputVideoToRec709Range"] = 0
+    
+    assert a.reference.hdr_master_display == None, "Table 34: Mastering display colour volume SEI message encoder paramete"
+    assert a.reference.hdr_max_cll == None
+    assert a.reference.hdr_max_fall == None
+
     if reconstruction != None:
         cmd["--ReconFile"] = str(reconstruction)
+        cmd["--ClipOutputVideoToRec709Range"] = cmd["--ClipInputVideoToRec709Range"]
+    if extra:
+        cmd["--PrintMSSSIM"] = 1
+        cmd["--PrintHexPSNR"] = 1
+
+    # explicit defaults ######################################
+
+    # Extends the input video by adding MSBs of value 0. When 0, no extension
+    # is applied and the InputBitDepth is used.
+    # The MSBExtendedBitDepth becomes the effective file InputBitDepth for
+    # subsequent processing.
+    cmd["--MSBExtendedBitDepth"] = 0 
+
+    # Specifies the bit depth used for coding. When 0, the setting defaults to the
+    # value of the MSBExtendedBitDepth.
+    # If the input video is a different bit depth to InternalBitDepth, it is automati-
+    # cally converted [...] The effect of this option is as if the input video is externally converted
+    # to the MSBExtendedBitDepth and then to the InternalBitDepth and then
+    # coded with this value as InputBitDepth. The codec has no notion of different
+    # bit depths.
+    cmd["--InternalBitDepth"] = 0
+
+    # When this is set true, then no colour space conversion is applied prior to
+    # PSNR calculation, otherwise the inverse of InputColourSpaceConvert is ap-
+    # plied.
+    cmd["--InputColourSpaceConvert"] = "UNCHANGED"
+    cmd["--SNRInternalColourSpace"] = False
+    cmd["--OutputInternalColourSpace"] = 0
+    # cmd["--ChromaFormatIDC"] = 0 # = InputChromaFormat
+
     return _to_cli_args(cmd)
 
 
@@ -145,8 +190,8 @@ class HM(ReferenceEncoder):
         return shlex.split(qp_args)
     
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
-        args = reference_encoder_args(a, bitstream, reconstruction) 
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None, extra:bool=False) -> List[str]:
+        args = reference_encoder_args(a, bitstream, reconstruction, extra)
         args += cls.get_variant_cli(variant_cli)
         return args
 
@@ -160,8 +205,12 @@ class HM(ReferenceEncoder):
                                  video. Permitted values are (empty
                                  string=UNCHANGED) UNCHANGED, YCrCbtoYCbCr or
                                  GBRtoRGB
+        --ClipOutputVideoToRec709Range 
         """
-        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": f'{a.reference.bit_depth}' })
+        return [
+            *_to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": f'{a.reference.bit_depth}' }),
+            "--ClipOutputVideoToRec709Range"
+        ]
 
 
 @register_encoder
@@ -198,8 +247,8 @@ class VTM(ReferenceEncoder):
         return shlex.split(qp_args)
 
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
-        args = reference_encoder_args(a, bitstream, reconstruction) 
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None, extra:bool=False) -> List[str]:
+        args = reference_encoder_args(a, bitstream, reconstruction, extra)
         args += cls.get_variant_cli(variant_cli)
         return args
 
@@ -223,7 +272,7 @@ class JM(ReferenceEncoder):
         return shlex.split(qp_args)
 
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None, extra:bool=False) -> List[str]:
         # tracefile = v.anchor.working_dir / f'{v.basename}.enc.trace.txt'
         # statsfile = v.anchor.working_dir / f'{v.basename}.enc.stats.dat'
 
@@ -288,7 +337,7 @@ class ETM(ReferenceEncoder):
         return shlex.split(qp_args)
 
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None, extra:bool=False) -> List[str]:
         assert a.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
         assert a.reference.bit_depth in [8, 10], f'invalid reference bitdepth {a.reference.bit_depth} | supported: [8,10]'
         assert not a.reference.interleaved, 'interleaved format not supported'
@@ -315,6 +364,8 @@ class ETM(ReferenceEncoder):
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
             args += ['-r', reconstruction ]
         
+        # MS-SSIM_Y is printed by default, no hex PSNR
+
         args += cls.get_variant_cli(variant_cli)
         
         return args

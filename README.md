@@ -13,7 +13,7 @@ to build the image:
 ```
 git clone https://github.com/haudiobe/5GVideo.git
 cd 5GVideo
-docker build -t anchortools -f ./docker/Dockerfile .
+docker build -t anchortools:latest -f ./docker/Dockerfile .
 ```
 
 to use the image:
@@ -25,7 +25,14 @@ anchor_key=S3-A36-265
 docker run -it \
     --mount type=bind,source=$root_dir/Anchors,target=/data/Anchors \
     --mount type=bind,source=$root_dir/ReferenceSequences,target=/data/ReferenceSequences \
-    anchortools:latest ./verify.py decoder --scenario_dir /data/Anchors/$scenario -k $anchor_key
+    anchortools:latest \
+    ./verify.py decoder --scenario_dir /data/Anchors/$scenario -k $anchor_key
+```
+
+## dry-run 
+Use `--dry-run` to print the commands used without actually running them :
+```
+./verify.py decoder --scenario_dir /data/Anchors/$scenario -k $anchor_key --dry-run
 ```
 
 
@@ -62,6 +69,20 @@ the `--template` argument can be used to provide the path to a json template for
 ```
 verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream --template ./report-template.json
 ```
+
+with `./report-template.json` :
+```
+{
+    "Contact": {
+        "Company": "",
+        "name": "",
+        "e-mail": ""
+    },
+    "meeting": "",
+    "input": ""
+}
+```
+
 
 **Custom directory layout**
 
