@@ -44,22 +44,22 @@ Use `--dry-run` to print the commands used without actually running them :
 
 verify a specific anchor's bitstreams:
 ```
-verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
+verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
 ```
 
 verify all bitstreams in a scenarios:
 ```
-verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
+verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
 ```
 
 verify a specific anchor's metrics:
 ```
-verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
+verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
 ```
 
 verify all metrics in a scenarios:
 ```
-verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
+verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
 ```
 
 
@@ -67,7 +67,7 @@ verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream
 
 the `--template` argument can be used to provide the path to a json template for the report (contact info, etc ...), eg.:
 ```
-verify.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 bitstream --template ./report-template.json
+verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 --template ./report-template.json
 ```
 
 with `./report-template.json` :
@@ -81,6 +81,31 @@ with `./report-template.json` :
     "meeting": "",
     "input": ""
 }
+```
+
+**CSV bundling of verification reports**
+
+After running verification steps, the result gets stored in the anchor json.
+to export the most recent verification report to csv, use the following commands :
+
+the csv file gets saved in the scenario directory which was processed.
+
+to process an entire scenario :
+```
+verify.py report --scenario_dir /data/Anchors/Scenario-3
+```
+generates `/data/Anchors/Scenario-3/verification_report.csv`
+
+
+to process specific anchors eg. *S3-A36-265*, using a template to fill in contact informations:
+```
+verify.py report --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
+```
+
+by default, contact information and document fields are copied from the anchor's json.
+a template can be used to fill in these informations instead, using `--template`:
+```
+verify.py report --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 --template ./report-template.json
 ```
 
 

@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 import argparse
-from os import error
+from os import close, error, replace
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone 
 from enum import Enum
 import math
 import json
+from csv import DictWriter
 
 from typing import Any, List, Iterable, Tuple
 
@@ -17,11 +18,63 @@ from metrics import Metric, VariantMetricSet, compute_metrics, anchor_metrics_to
 DEBUG_FIRST_VARIANT_ONLY=False 
 DEBUG_SKIP_VMAF=False
 
-class AnchorVerification(Enum):
+class AnchorVerificationCmd(Enum):
+    REPORT = -1
     BITSTREAM = 1
     DECODER = 2
 
-def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerification, success:bool, log_data:List[str]=None, template:dict=None):
+class AnchorVerificationReport:
+    
+    CSV_FIELDNAMES = [ "key", "file", "origdate", "md5", "status", "company", "e-mail", "vdate", "document", "type", "information" ]
+
+    @classmethod
+    def from_json_dict(cls, report):
+        r = cls()
+        r.verification_date = report["date"]
+
+        contact = report["Contact"]
+        r.contact_company = contact["Company"]
+        r.contact_name = contact["name"]
+        r.contact_e_mail = contact["e-mail"]
+
+        r.meeting = report["meeting"]
+        r.input_doc = report["input"]
+        r.status = report["status"]
+        r.type = report["type"]
+        r.information = report["information"]
+
+        return r
+
+    @classmethod
+    def get_csv_writer(cls, fo, writeheader=True) -> DictWriter:
+        dw = DictWriter(fo, fieldnames=cls.CSV_FIELDNAMES)
+        if writeheader:
+            dw.writeheader()
+        return dw
+
+    def to_csv_dict(self, vf:Path, vd:VariantData, template:"AnchorVerificationReport"=None):
+        row = {
+            "key":vd.variant_id,
+            "file":str(vf),
+            "origdate":vd.bitstream["date"],
+            "md5":vd.bitstream["md5"],
+            "status":self.status,
+            "company":self.contact_company,
+            "e-mail":self.contact_e_mail,
+            "vdate":self.verification_date,
+            "document":self.input_doc,
+            "type":self.type,
+            "information":self.information
+        }
+        if template != None:
+            row["company"] = template.contact_company
+            row["e-mail"] = template.contact_e_mail
+            row["document"] = template.input_doc
+        return row
+
+
+
+def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerificationCmd, success:bool, log_data:List[str]=None, template:dict=None):
     report = template
     if report == None:
         ts = datetime.now(timezone.utc)
@@ -49,11 +102,12 @@ def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVe
     
     idx = len(vd.verification["Reports"])
 
-    if verification_type == AnchorVerification.BITSTREAM:
+    if verification_type == AnchorVerificationCmd.BITSTREAM:
         report["type"] = "bistream"
-    elif verification_type == AnchorVerification.DECODER:
+    elif verification_type == AnchorVerificationCmd.DECODER:
         report["type"] = "decoder"
 
+    # save verification report
     log_file = vf.parent / f'{vd.variant_id}_verification_{idx}_{report["type"]}_{ts.strftime("%d%m%y")}.log'
     with open(log_file, 'w') as fo:
         fo.writelines(log_data)
@@ -146,7 +200,7 @@ def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) 
         assert vd != None, f'variant data not found:{vf}'
         success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=tmp_dir)
         if not a.dry_run:
-            save_verification_report(vf, vd, AnchorVerification.DECODER, success, log_data, template=template)
+            save_verification_report(vf, vd, AnchorVerificationCmd.DECODER, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
         if DEBUG_FIRST_VARIANT_ONLY:
@@ -225,7 +279,7 @@ def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=Non
         print('-'*128)
         success, log_data = verify_variant_bitstream(a, vd, vf, tmp_dir=tmp_dir)
         if not a.dry_run:
-            save_verification_report(vf, vd, AnchorVerification.BITSTREAM, success, log_data, template=template)
+            save_verification_report(vf, vd, AnchorVerificationCmd.BITSTREAM, success, log_data, template=template)
         if not success:
             a_errors.append(log_data)
         if DEBUG_FIRST_VARIANT_ONLY:
@@ -234,18 +288,32 @@ def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=Non
     return a_errors
 
 
+def report_anchor_verifications(a:AnchorTuple, dw:DictWriter, template:dict=None) -> Iterable[Iterable[str]]:
+    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
+    if template != None:
+        template = AnchorVerificationReport.from_json_dict(template)
+
+    for vf, vd in iter_variants(a):
+        assert vd != None, f'variant data not found:{vf}'
+        data = vd.verification["Reports"][-1]
+        report = AnchorVerificationReport.from_json_dict(data)
+        row = report.to_csv_dict(vf, vd, template=template)
+        dw.writerow(row)
+
+
+
 #########################################################################################################
 
-def verify(verification_type:AnchorVerification, anchors:Iterable[AnchorTuple], dry_run=True, template:dict=None, tmp_dir:Path=None):
+def verify(verification_type:AnchorVerificationCmd, anchors:Iterable[AnchorTuple], dry_run=True, template:dict=None, tmp_dir:Path=None, report_dir:Path=None):
 
     batch = []
     preflight_errors = {}
 
-    if verification_type == AnchorVerification.DECODER:
+    if verification_type == AnchorVerificationCmd.DECODER:
         preflight_fn = decoder_verification_preflight
         verification_fn = verify_anchor_metrics
 
-    elif verification_type == AnchorVerification.BITSTREAM:
+    elif verification_type == AnchorVerificationCmd.BITSTREAM:
         preflight_fn = bitstream_verification_preflight
         verification_fn = verify_anchor_bitstreams
 
@@ -267,7 +335,7 @@ def verify(verification_type:AnchorVerification, anchors:Iterable[AnchorTuple], 
             for err in errors:
                 print(f'#\t* {err}')
 
-        
+
 def main():
     
     parser = argparse.ArgumentParser()
@@ -299,13 +367,18 @@ def main():
     
     cfg_dir = scenario_dir / '../CFG'
     if args.type == "bitstream":
-        verification_type = AnchorVerification.BITSTREAM
+        verification_type = AnchorVerificationCmd.BITSTREAM
         if args.cfg_dir != None:
             cfg_dir = args.cfg_dir
         if not cfg_dir.exists():
             parser.error("`a valid --cfg_dir` is required for bitstream verification")
+
     elif args.type == "decoder":
-        verification_type = AnchorVerification.DECODER
+        verification_type = AnchorVerificationCmd.DECODER
+
+    elif args.type == "report":
+        verification_type = AnchorVerificationCmd.REPORT
+
     else:
         parser.error("invalid verification type")
         return
@@ -331,17 +404,28 @@ def main():
     if args.template:
         with open(template, 'r') as fo:
             template = json.loads(fo)
-    try:
-        verify(
-            verification_type,
-            anchors, 
-            dry_run=args.dry_run,
-            template=template,
-            tmp_dir=tmp_dir
-        )
-    except KeyboardInterrupt as e:
-        print(e)
-        return
+    
+    if verification_type == AnchorVerificationCmd.REPORT:
+        fp = sequences_dir / 'verification_report.csv'
+        with open(fp, 'w') as fo:
+            print('saving to: ', fp)
+            dw = AnchorVerificationReport.get_csv_writer(fo)
+            for a in anchors:
+                print('writing verifications for: ', a.anchor_key )
+                report_anchor_verifications(a, dw, template)
+
+    else:
+        try:
+            verify(
+                verification_type,
+                anchors, 
+                dry_run=args.dry_run,
+                template=template,
+                tmp_dir=tmp_dir
+            )
+        except KeyboardInterrupt as e:
+            print(e)
+            return
 
 if __name__ == "__main__":
     main()
