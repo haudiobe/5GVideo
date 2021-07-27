@@ -1,5 +1,7 @@
-__pycache__/
-.venv/*
-.vscode/*
-.deps/*
-.gitignore
+# ignore everything
+**
+# whitelist
+!*.py
+!requirements.txt
+!docker/
+!report-template.json

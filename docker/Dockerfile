@@ -29,7 +29,8 @@ RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
   make -j 4
 
-ENV HDRMETRICS_TOOL=/home/deps/HDRTools/build/bin/HDRMetrics
+ENV HDRMETRICS_TOOL=/home/home/deps/HDRTools/build/bin/HDRMetrics
+ENV HDRTOOLS_CHOMACONVERT=/home/deps/HDRTools/build/bin/ChromaConvert
 
 ## HM ###
 RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/HM.git && \
@@ -78,8 +79,6 @@ ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
 ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform
 ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmaf
 
-
-
 ## HM SCC extension ###
 RUN cp -r /home/deps/HM /home/deps/SCM
 RUN cd ./SCM && rm -rf ./bin/* && rm -rf ./build/* && git checkout ${SCM_VERSION}
@@ -89,6 +88,12 @@ RUN cd ./SCM/build && \
 ENV SCM_ENCODER=/home/deps/SCM/bin/TAppEncoderStatic
 ENV SCM_DECODER=/home/deps/SCM/bin/TAppDecoderStatic
 
+## ETM public repo ? ###
 
 WORKDIR /home/5GVideo
-COPY ./*.py ./
+COPY requirements.txt ./
+RUN pip install -r ./requirements.txt
+COPY *.py ./
+COPY report-template.json ./
+
+# ENTRYPOINT ["/usr/bin/python3"]

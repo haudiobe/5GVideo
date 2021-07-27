@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 from enum import Enum
 
-class ColourPrimaries(Enum):
+class ColorPrimaries(Enum):
     BT_709 = "1"
     BT_2020 = "9"
 
@@ -76,7 +76,7 @@ class VideoInfo:
         self.frame_count = properties.get('frameCount', None)
         self.packing = properties.get('packing', None)
         self.scan = properties.get('scan', None)
-        self.colour_primaries = from_enum(ColourPrimaries, properties.get('colourPrimaries', None))
+        self.colour_primaries = from_enum(ColorPrimaries, properties.get('colourPrimaries', None))
         self.transfer_characteristics = from_enum(TransferFunction, properties.get('transferCharacteristics', None))
         self.matrix_coefficients = from_enum(MatrixCoefficients, properties.get('matrixCoefficients', None))
         self.sar = properties.get('sampleAspectRatio', None)
@@ -99,12 +99,12 @@ class VideoInfo:
         assert self.scan in ['progressive', 'interlaced'], f'invalid scan: {self.scan}'
         assert self.chroma_subsampling in [ChromaSubsampling.CS_400, ChromaSubsampling.CS_420, ChromaSubsampling.CS_422, ChromaSubsampling.CS_444], f'invalid subsampling: {self.chroma_subsampling}'
         assert self.bit_depth in [8, 10, 12, 16], f'invalid bitdepth: {self.bit_depth}'
-        assert self.colour_primaries in [ColourPrimaries.BT_709, ColourPrimaries.BT_2020], f'unsupported colour primaries, expected 1 or 9, got: {self.colour_primaries}'
+        assert self.colour_primaries in [ColorPrimaries.BT_709, ColorPrimaries.BT_2020], f'unsupported colour primaries, expected 1 or 9, got: {self.colour_primaries}'
         
-        if self.colour_primaries == ColourPrimaries.BT_709:
+        if self.colour_primaries == ColorPrimaries.BT_709:
             assert self.transfer_characteristics == TransferFunction.BT709, 'unsupported transfer characteristics for colour primaries 1'
             assert self.matrix_coefficients == MatrixCoefficients.BT_709, 'unsupported matrix coefficient for colour primaries 1'
-        elif self.colour_primaries == ColourPrimaries.BT_2020:
+        elif self.colour_primaries == ColorPrimaries.BT_2020:
             assert self.matrix_coefficients == MatrixCoefficients.BT_2020, 'unsupported matrix coefficient for colour primaries 9'
             assert self.transfer_characteristics in [TransferFunction.BT2020_SDR, TransferFunction.BT2020_HLG, TransferFunction.BT2020_HLG], 'unsupported transfer characteristics for colour primaries 9'
 
@@ -138,14 +138,27 @@ class VideoInfo:
 
 class VideoSequence(VideoInfo):
     
-    def __init__(self, filename:str, contact:dict = None, copyright:str = None, **properties):
+    def __init__(self, filename:str, sequence:dict = None, contact:dict = None, copyright:str = None, **properties):
         self.path = Path(filename).resolve()
         self.contact = contact
         self.copyright = copyright
+        self.sequence = sequence
         super().__init__(**properties)
 
+    def dump(self, path:Path):
+        ref = self.sequence
+        ref["URI"] = str(self.path.name)
+        data = {
+            "Sequence": ref,
+            "Properties": self.properties,
+            "copyRight": self.copyright,
+            "Contact": self.contact
+        }
+        with open(path, 'w') as writer:
+            json.dump(data, writer)
+
     @staticmethod
-    def from_sidecar_metadata(metadata:Path):
+    def from_sidecar_metadata(metadata:Path) -> 'VideoSequence':
         # https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
         data = None
         try:
@@ -170,4 +183,4 @@ class VideoSequence(VideoInfo):
         props = data['Properties']
         contact = data.get('Contact', None )
         cc = data.get('copyRight', None )
-        return VideoSequence(raw_sequence, copyright=cc, contact=contact, **props)
+        return VideoSequence(raw_sequence, copyright=cc, contact=contact, sequence=data['Sequence'], **props)

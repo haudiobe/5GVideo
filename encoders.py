@@ -9,7 +9,18 @@ from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 __encoders__ = {}
 
-class ReferenceEncoder(ABC):
+def parse_encoding_bitdepth(cfg:Path, encoder_id:str=None):
+    if encoder_id != None:
+        return __encoders__[encoder_id].parse_encoding_bitdepth(cfg)
+    with open(cfg, 'r') as fo:
+        for line in fo:
+            m = re.match(f'(InternalBitDepth\s*:\s*)(\d*)', line)
+            if m:
+                return int(m[2])
+        return -1
+
+
+class EncoderBase(ABC):
 
     @abstractclassmethod
     def get_variant_cli(cls, args:str) -> List[str]:
@@ -32,12 +43,16 @@ class ReferenceEncoder(ABC):
         return {}
 
     @classmethod
+    def cfg(cls, a:AnchorTuple) -> dict:
+        return None
+
+    @classmethod
     def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, dst_dir:Path=None) -> VariantData:
 
         if dst_dir != None:
-            assert dst_dir.is_dir()
+            assert dst_dir.is_dir(), 'target directory not found'
         else:
-            dst_dir = a.working_dir
+            dst_dir = a.working_dir, 'anchor working directory not found'
 
         encoder = get_env(cls.encoder_bin)
         bitstream = dst_dir / f'{variant_id}.bin'
@@ -55,7 +70,7 @@ class ReferenceEncoder(ABC):
     @classmethod
     def decode_variant(cls, a:AnchorTuple, v:VariantData, dst_dir:Path=None, md5=True) -> ReconstructionMeta:
         if dst_dir != None:
-            assert dst_dir.is_dir()
+            assert a.dry_run or dst_dir.is_dir(), f'decoder output directory not found: {dst_dir}'
         else:
             dst_dir = a.working_dir
         decoder = get_env(cls.decoder_bin)
@@ -69,7 +84,7 @@ class ReferenceEncoder(ABC):
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
     
 
-def register_encoder(cls:ReferenceEncoder):
+def register_encoder(cls:EncoderBase):
     """
     a class decorator to register a custom encoder implementation
     the encoder class must declare an 'encoder_id' class property
@@ -81,7 +96,7 @@ def register_encoder(cls:ReferenceEncoder):
     __encoders__[cls.encoder_id] = cls
     return cls
 
-def get_encoder(id:str) -> 'ReferenceEncoder':
+def get_encoder(id:str) -> 'EncoderBase':
     """
     get a registered encoder implementation
     """
@@ -144,6 +159,7 @@ def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=No
 
     if reconstruction != None:
         cmd["--ReconFile"] = str(reconstruction)
+        # /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
         cmd["--ClipOutputVideoToRec709Range"] = cmd["--ClipInputVideoToRec709Range"]
     if extra:
         cmd["--PrintMSSSIM"] = 1
@@ -178,7 +194,7 @@ def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=No
 
 
 @register_encoder
-class HM(ReferenceEncoder):
+class HM(EncoderBase):
     
     encoder_id = os.getenv("HM_VERSION", "HM")
     encoder_bin = "HM_ENCODER"
@@ -205,7 +221,7 @@ class HM(ReferenceEncoder):
                                  video. Permitted values are (empty
                                  string=UNCHANGED) UNCHANGED, YCrCbtoYCbCr or
                                  GBRtoRGB
-        --ClipOutputVideoToRec709Range 
+        --ClipOutputVideoToRec709Range /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
         """
         return [
             *_to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": f'{a.reference.bit_depth}' }),
@@ -235,7 +251,7 @@ class SCM(HM):
 
 
 @register_encoder
-class VTM(ReferenceEncoder):
+class VTM(EncoderBase):
     
     encoder_id = os.getenv("VTM_VERSION", "VTM")
     encoder_bin = "VTM_ENCODER"
@@ -259,7 +275,7 @@ class VTM(ReferenceEncoder):
 
 
 @register_encoder
-class JM(ReferenceEncoder):
+class JM(EncoderBase):
 
     encoder_id = os.getenv("JM_VERSION", "JM")
     encoder_bin = "JM_ENCODER"
@@ -325,7 +341,7 @@ class JM(ReferenceEncoder):
     
 
 @register_encoder
-class ETM(ReferenceEncoder):
+class ETM(EncoderBase):
 
     encoder_id = os.getenv("ETM_VERSION", "ETM")
     encoder_bin = "ETM_ENCODER"

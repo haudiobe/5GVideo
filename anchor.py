@@ -13,6 +13,7 @@ class AnchorList:
     CLAUSE = 'Clause'
     REF_SEQ = 'Reference Sequence'
     REF_ENC = 'Reference_Encoder'
+    TEST_ENC = 'Test_Encoder'
     CFG = 'Configuration'
     VARIANTS = 'Variations'
     VARIANT_KEY = 'Anchor_Key' # template for variant json filename
@@ -47,7 +48,7 @@ class VariantData:
 
     @classmethod
     def load(cls, fp:Path) -> 'VariantData':
-        assert fp.exists()
+        assert fp.exists(), f'File not found: {fp}'
         with open(fp, 'r') as fo:
             data = json.load(fo)
             generation = data.get("Generation", None)
@@ -236,8 +237,8 @@ class VariantData:
 
 class AnchorTuple:
     
-    def __init__(self, anchor_dir:Path, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:str, anchor_key:str, description:str=None, start_frame:int=0, frame_count:int=None, dry_run:bool=False):
-        assert anchor_dir and anchor_dir.is_dir(), f'[{anchor_key}] - invalid working directory : {anchor_dir}'
+    def __init__(self, anchor_dir:Path, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:str, anchor_key:str, description:str=None, start_frame:int=0, frame_count:int=None, dry_run:bool=False, raise_if_not_exists=True):
+        assert (not raise_if_not_exists) or anchor_dir and anchor_dir.is_dir(), f'[{anchor_key}] - invalid working directory : {anchor_dir}'
         self._working_dir = anchor_dir
         self._encoder_id = encoder_id
         self._encoder_cfg = encoder_cfg
@@ -258,9 +259,8 @@ class AnchorTuple:
         self._variants = data
         self.dry_run = dry_run
 
-
     @property
-    def working_dir(self):
+    def working_dir(self) -> Path:
         return self._working_dir
 
     @property
@@ -268,8 +268,12 @@ class AnchorTuple:
         return self._encoder_id
 
     @property
-    def encoder_cfg(self) -> Path:
-        return Path(self._encoder_cfg).resolve()
+    def encoder_cfg(self) -> Path: 
+        p = Path(self._encoder_cfg)
+        if p.is_absolute():
+            return p
+        else:
+            return self.working_dir.parent / 'CFG' / p
 
     @property
     def reference(self) -> VideoSequence:
@@ -295,7 +299,7 @@ class AnchorTuple:
     def basename(self):
         return self.encoder_cfg.stem
 
-    def iter_variants(self) -> Generator[Tuple[str, list], None, None]:
+    def iter_variants_args(self) -> Generator[Tuple[str, list], None, None]:
         """
         yields (variant_id, variant_encoder_args)
         """
@@ -307,21 +311,40 @@ class AnchorTuple:
         return self._anchor_key
 
 
+
 #########################################################################################################
 
+def __fix_sidecar_meta(loc):
+    # @FIXME: this file doesn't follow the pattern
+    if loc != 'Baolei-Man':
+        meta = f'{loc}/{loc}.json'
+    else:
+        meta = f'{loc}/{str(loc).lower()}.json'
+    return meta
+
+def iter_ref_locations(reference_list:Path) -> Iterable[str]:
+    refs = []
+    with open(reference_list, 'r', encoding=ENCODING) as fo:
+        for row in csv.DictReader(fo):
+            refs.append( __fix_sidecar_meta(row[RefSequenceList.LOC]) )
+    return refs
 
 def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
-            loc = row[RefSequenceList.LOC]
-            meta = root_dir / loc / f'{loc}.json'
+            meta = root_dir / __fix_sidecar_meta(row[RefSequenceList.LOC])
             vs = VideoSequence.from_sidecar_metadata(meta)
             assert (vs.frame_count / vs.frame_rate) == float(row[RefSequenceList.DUR]), f'(frame_count / frame_rate) != expected duration'
             refs[row[RefSequenceList.KEY]] = vs
     return refs
 
-def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=Path('../CFG'), keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
+def iter_anchors_csv(anchor_list:Path):
+    with open(anchor_list, 'r', encoding=ENCODING) as fo:
+        for row in csv.DictReader(fo):
+            yield row
+
+def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None, raise_if_not_exists=True) -> Iterable[AnchorTuple]:
     anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
@@ -330,13 +353,15 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
                 continue
             seq = refs[row[AnchorList.REF_SEQ]]
             description = row[AnchorList.CLAUSE]
-            encoder_id = row[AnchorList.REF_ENC] # eg. HM16.22, 
-            encoder_cfg = cfg_dir / (str(row[AnchorList.CFG]).lower() + '.cfg') # eg. S3-HM-01, no directory context specified
+            encoder_id = row[AnchorList.REF_ENC] if AnchorList.REF_ENC in row else row[AnchorList.TEST_ENC] # eg. HM16.22, 
+            encoder_cfg = str(row[AnchorList.CFG]).lower() + '.cfg' # eg. S3-HM-01, no directory context specified
+            if cfg_dir:
+                encoder_cfg = Path(cfg_dir / encoder_cfg).resolve()
             variants = row[AnchorList.VARIANTS]
             anchor_dir = scenario_dir / row[AnchorList.KEY]
             bitsream_key_template = row[AnchorList.VARIANT_KEY]
             anchors.append(
-                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count)
+                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count, raise_if_not_exists=raise_if_not_exists)
             )
     return anchors
 
@@ -344,10 +369,33 @@ def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
     """ 
     yields (a.working_dir/variant.json, VariantData)
     """
-    for variant_id, _ in a.iter_variants():
+    for variant_id, _ in a.iter_variants_args():
         vfp = a.working_dir / f'{variant_id}.json'
         data = None
         if vfp.exists():
             data = VariantData.load(vfp)
         yield vfp, data
         
+
+def check_anchor_data(a):
+    try:
+        assert a.working_dir.exists(), f'working dir not found: {a.working_dir}'
+        assert a.reference.path.exists(), f'reference sequence not found: {a.reference.path}'
+        assert a.encoder_cfg.exists(), f'encoder config not found: {a.encoder_cfg}'
+        assert parse_encoding_bitdepth(a.encoder_cfg) == 10, f'encoder config error - InternalBitDepth'
+        if a.reference.bit_depth != 10:
+            assert a.reference.bit_depth == 8, f'unexpected bit depth: {a.reference.bit_depth}'
+        conv = conversion_path(a.reference.path, '10bit')
+        assert conv.exists(), '10bit conversion of reference sequence is missing'
+        return None
+    except AssertionError as e:
+        return e
+
+
+def check_variant_data(v, a, md5_check=False):
+    try:
+        assert 'verified' in v.verification, 'variant data not verified'
+        v.locate_bitstream(a.working_dir, md5_check=md5_check)
+        return None
+    except BaseException as e:
+        return e

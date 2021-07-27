@@ -1,206 +1,209 @@
 
-# Quickstart
+# Overview
 
-* the script are designed to work with data downloaded from: `https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo`
+1. build / environment
+2. downloading reference content from the [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/)
+3. video conversion step (8 to 10bit, EXR)
+4. running verifications
+5. creating test data
+6. plotting
 
+_____
 
-## Using docker
+# 1. build / environment
 
-a sample [Dockerfile](https://docs.docker.com/get-docker/) is provided to build an image with the scripts dependencies.
+## 1.1 Docker image
 
+The sample [Dockerfile](https://docs.docker.com/get-docker/) located in the `docker/` directory, aims at bundling the scripts and dependencies in a portable reference environment: JM, HM, VTM, SCM, VMAF, HDRTools.
 
-to build the image:
+**build the docker image**
+
 ```
 git clone https://github.com/haudiobe/5GVideo.git
 cd 5GVideo
 docker build -t anchortools:latest -f ./docker/Dockerfile .
 ```
 
-to use the image:
-```
-root_dir=/path/to/host/data
-scenario=Scenario-3
-anchor_key=S3-A36-265
+**using the docker image**
 
+to run the scripts in docker container, you can mount your local data directory to `/data`, then specify the script and script options.
+
+```
+base_dir=/path/to/host/data
 docker run -it \
-    --mount type=bind,source=$root_dir/Anchors,target=/data/Anchors \
-    --mount type=bind,source=$root_dir/ReferenceSequences,target=/data/ReferenceSequences \
-    anchortools:latest \
-    ./verify.py decoder --scenario_dir /data/Anchors/$scenario -k $anchor_key
-```
-
-## dry-run 
-Use `--dry-run` to print the commands used without actually running them :
-```
-./verify.py decoder --scenario_dir /data/Anchors/$scenario -k $anchor_key --dry-run
+    --mount type=bind,source=$base_dir,target=/data anchortools:latest \
+    ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
 ```
 
 
-## anchor verification 
+## 1.2 running the scripts without docker
 
-> see the `samples` directory for sample verification logs and reports. 
-
-`verify.py` script runs verification for bitstream or metrics, updates the anchor's metrics if verification is successfull.
-
-verify a specific anchor's bitstreams:
+use a python virtual environment
 ```
-verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
+python3 -m venv .venv 
+source .venv/bin/activate
 ```
 
-verify all bitstreams in a scenarios:
+install the dependencies:
 ```
-verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
-```
-
-verify a specific anchor's metrics:
-```
-verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
+pip3 install -r requiements.txt
 ```
 
-verify all metrics in a scenarios:
+configure environment variables
 ```
-verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
+HM_ENCODER=~/HM/bin/TAppEncoderStatic
+HM_DECODER=~/HM/bin/TAppDecoderStatic
+SCM_ENCODER=~/SCM/bin/TAppEncoderStatic
+SCM_DECODER=~/SCM/bin/TAppDecoderStatic
+VTM_ENCODER=~/VVCSoftware_VTM/bin/EncoderAppStatic
+VTM_DECODER=~/VVCSoftware_VTM/bin/DecoderAppStatic
+JM_ENCODER=~/JM/bin/lencod_static
+JM_DECODER=~/JM/bin/ldecod_static
+ETM_ENCODER=~/ETM-master/bin/evca_encoder
+ETM_DECODER=~/ETM-master/bin/evca_decoder
+SEI_REMOVAL_APP=~HM/bin/SEIRemovalAppStaticd
+HDRMETRICS_TOOL=~/HDRTools/build/bin/HDRMetrics
+HDRTOOLS_CHOMACONVERT=~/HDRTools/build/bin/ChromaConvert
+VMAF_EXEC=~/vmaf/libvmaf/build/tools/vmaf
+```
+
+_____
+
+
+# 2. downloading content from the reference server
+
+The `download.py` script downloads content from the public [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/).
+
+When content is already available in the target directory, it is skipped if the local file size matches the original file.
+
+`--dry-run` doesn't proceed with download, but instead it lists files that need to be downloaded.
+
+**downloading reference sequences needed for a given scenario/codec**
+
+```
+download.py --dl-ref-sequences --scenario_dir /data/Bitstreams/Scenario-3/265-Screen/H265
+```
+
+this download the `reference-sequence.csv` for the target scenario 'Scenario-3-Screen',
+reads that csv, and proceeds with downloading all the reference sequences (the sidecar metadata file, and video sequence).
+
+
+**downloading all variants of a given scenario/codec**
+
+```
+download.py --dl-streams --scenario_dir /data/Bitstreams/Scenario-3-Screen/265
+```
+
+downloads the encoder configuration, and all variant data
+
+
+_____
+
+
+# 3. content conversion
+
+For some scenario/metric configurations it is required to pre-process content before running HDR tools (eg. 8 bit ref sequence with 10bit coded bit depth).
+
+To generate the required conversions:
+```
+convert.py --scenario_dir /data/Bitstreams/Scenario-3-Screen/265 -k S3-A36-265
+```
+If a conversion already exists (.json + .yuv both exist) it will be used.
+
+This conversion is done using the HDRTools' ChromaConvert program using the `convert.py`
+
+_____
+
+
+# 4. content verification
+
+`verify.py` script runs verification for bitstream or metrics, updates the anchor's metrics if verification is successfull. 
+
+**bitstream verification**
+
+for a specific anchor:
+```
+verify.py bitstream --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
+```
+
+for the entire scenario/codec:
+```
+verify.py bitstream --scenario_dir /data/Bitstreams/Scenario-3/265
+```
+
+**decoder verification**
+
+for a specific anchor:
+```
+verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 decoder
+```
+
+for the entire scenario/codec:
+```
+verify.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265 decoder
 ```
 
 
-## Report template
+## bundling verification reports to csv
 
-the `--template` argument can be used to provide the path to a json template for the report (contact info, etc ...), eg.:
+When running verification steps, the result is stored directly in the anchor json. To export the most recent verification report to csv, use the following commands :
 ```
-verify.py bitstream --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 --template ./report-template.json
+verify.py report --scenario_dir /data/Bitstreams/Scenario-3/265 \
+    -k S3-A36-265 \
+    --template ./report-template.json
 ```
+to generate `/data/Bitstreams/Scenario-3/265/verification_report.csv`.
 
-with `./report-template.json` :
+the `--template` argument specifies a json template for the report (contact info, etc ...).
+
+sample `./report-template.json` :
 ```
 {
     "Contact": {
-        "Company": "",
-        "name": "",
-        "e-mail": ""
+        "Company": "Co",
+        "name": "Name",
+        "e-mail": "e@mail.me"
     },
     "meeting": "",
     "input": ""
 }
 ```
 
-## CSV bundling of verification reports
+_____
 
-After running verification steps, the result gets stored in the anchor json.
-to export the most recent verification report to csv, use the following commands :
 
-the csv file gets saved in the scenario directory which was processed.
+# 5. creating new test data
 
-to process an entire scenario :
+the scripts can be used to generate new data for a given **scenario** / **encoder** :
+- `encoder`: encodes streams based on *Bitstreams/scenario/codec/streams.csv* and *Bitstreams/scenario/reference-sequences.csv*
+- `decoder`: decode stream, compute metrics and update streams metadata
+
+
+## 5.1 anchor generation
+
+encode a specific anchor for a specific anchor:
 ```
-verify.py report --scenario_dir /data/Anchors/Scenario-3
-```
-generates `/data/Anchors/Scenario-3/verification_report.csv`
-
-
-to process specific anchors eg. *S3-A36-265*, using a template to fill in contact informations:
-```
-verify.py report --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265
+create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 encoder
 ```
 
-by default, contact information and document fields are copied from the anchor's json.
-a template can be used to fill in these informations instead, using `--template`:
+for the entire scenario/codec:
 ```
-verify.py report --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 --template ./report-template.json
+create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265
 ```
 
 
-**Custom directory layout**
+## 5.2 metrics generation
 
-the verification script has additional command line arguments to customize directory layout, see `verify.py -h`.
-
-
-
-## metrics generation
-
-decode and compute metrics for a specific anchor, eg. S3-A36-265 in Scenario-3: 
-
-`cmd.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 decoder`
-
-decode and compute metrics for all anchors in Scenario-3: 
-
-`cmd.py --scenario_dir /data/Anchors/Scenario-3 decoder`
-
-**Notes**
-
-* reference sequences and encoder configuration should be accessible from the same relative path, relative to the target scenario. 
-* the scenario directory must contain `anchors.csv`, `reference-sequence.csv`
-
-## anchor generation
-
-encode a specific anchor, eg. S3-A36-265 in Scenario-3: 
+decode and compute metrics for a specific anchor:
 ```
-create.py --scenario_dir /data/Anchors/Scenario-3 -k S3-A36-265 encoder
+create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265`
 ```
 
-encode all anchors in Scenario-3: 
+for the entire scenario/codec:
 ```
-create.py --scenario_dir /data/Anchors/Scenario-3 encoder
-```
-
-**Notes**
-
-* reference sequences and encoder configuration should be accessible from the same relative path, relative to the target scenario. 
-* the scenario directory must contain `anchors.csv`, `reference-sequence.csv`
-
-
-# environment variables 
-
-Some environment variables are configured in the docker file.
-In order to run the scirpts on a custom environment, the following environment variables are used to locate the executables.
-
-## reference encoder/decoders:
-
-[JM](https://vcgit.hhi.fraunhofer.de/jct-vc/JM)
-```
-JM_ENCODER=/path/to/JM/bin/lencod_static
-JM_DECODER=/path/to/JM/bin/ldecod_static
+create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265
 ```
 
-[HM](https://vcgit.hhi.fraunhofer.de/jct-vc/HM)
-```
-HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic
-HM_DECODER=/path/to/bin/TAppDecoderStatic
-```
+## 5.3 encoder implementation
 
-[SCM](https://vcgit.hhi.fraunhofer.de/jvet/HM/-/tree/HM-SCC-extensions)
-ENV SCM_ENCODER=/path/to/SCM/bin/TAppEncoderStatic
-ENV SCM_DECODER=/path/to/SCM/bin/TAppDecoderStatic
-
-[VTM](https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM)
-```
-VTM_ENCODER=/path/to/bin/EncoderAppStatic
-VTM_DECODER=/path/to/bin/DecoderAppStatic
-```
-
-### Adding a custom encoder
-implement the ReferenceEncoder interface (encoder_id, encode_variant, decode_variant) and decorate your class (@register_encoder)
-
-
-### metrics computation:
-
-[HDRTools](https://gitlab.com/standards/HDRTools)
-```
-HDRMETRICS_TOOL=/path/to/HDRTools/build/bin/HDRMetrics
-```
-
-[VMAF](https://github.com/Netflix/vmaf)
-```
-VMAF_EXE=/path/to/vmaf/libvmaf/build/tools/vmaf
-VMAF_MODEL=path=/path/to/vmaf/model/vmaf_v0.6.1.json:enable_transform
-```
-
-# Raw video sequence description
-YUV sequences are currently described through a sidecar file.
-the sidecar file format follows the json schema specified at : https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
-
-
-# Limitations
-- framerate is converted to integer (HM only supports integer values)
-- RGB support is not complete
-- HDR PQ metrics are not complete 
-
+implement the EncoderBase interface (encoder_id, encode_variant, decode_variant) and decorate your class (@register_encoder)

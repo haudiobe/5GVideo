@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!.venv/bin/python3
+
 import argparse
 from os import close, error, replace
 import shutil
@@ -76,9 +77,11 @@ class AnchorVerificationReport:
 
 
 def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerificationCmd, success:bool, log_data:List[str]=None, template:dict=None):
+    
     report = template
+    ts = datetime.now(timezone.utc)
+
     if report == None:
-        ts = datetime.now(timezone.utc)
         report = {
             "Contact": {
                 "Company": "",
@@ -158,7 +161,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     if tmp_dir == None:
         tmp = vf.parent.with_suffix('.tmp')
     else:
-        tmp = tmp_dir / vf.parent.name
+        tmp = tmp_dir / vf.parent.with_suffix('.tmp').name
 
     if not a.dry_run:
         tmp.mkdir(exist_ok=True)
@@ -343,13 +346,14 @@ def main():
     parser.add_argument('type', help='"bitstream" or "decoder"')
     parser.add_argument('--scenario_dir', required=True, type=str, help='scenario directory')
     parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
-    parser.add_argument('-a', '--anchors_list', required=False, type=str, default='./anchors.csv', help='anchors.csv file containing the list of anchors for a scenario')
-    parser.add_argument('-s','--sequences_list', required=False, type=str, default='./reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
+    parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
+    parser.add_argument('-s','--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
     parser.add_argument('--sequences_dir', required=False, type=str, help='the directory containing the reference sequences')
     parser.add_argument('--cfg_dir', required=False, type=str, help='directory where encoder configurations can be found, required for bitstream verification')
     parser.add_argument('--template', required=False, type=str, help='json template for the verification report')
     parser.add_argument('--tmp_dir', required=False, type=str, help='tmp directory to encode / decode data')
     parser.add_argument('--dry-run', action='store_true', default=False)
+    
     args = parser.parse_args()
     
     scenario_dir = Path(args.scenario_dir)
@@ -361,10 +365,14 @@ def main():
     references_csv = scenario_dir / Path(args.sequences_list)
     assert references_csv.exists(), f'reference list not found {references_csv}'
 
-    sequences_dir = scenario_dir / '../../ReferenceSequences'
-    if args.sequences_dir != None: 
+    if args.sequences_dir:
+        assert Path(args.sequences_dir).is_dir(), f'invalid sequence directory {args.sequences_dir}'
         sequences_dir = Path(args.sequences_dir)
-    assert sequences_dir.is_dir(), f'invalid sequence directory {sequences_dir}'
+    else:
+        try:
+            sequences_dir = scenario_dir.parent.parent.parent / 'ReferenceSequences'
+        except:
+            assert 0, f'invalid sequence directory. check the --sequences_dir option'
     
     cfg_dir = scenario_dir / '../CFG'
     if args.type == "bitstream":
@@ -394,12 +402,13 @@ def main():
         keys = [args.key]
 
     refs = reference_sequences_dict(references_csv, sequences_dir)
-    anchors = iter_anchors(anchors_csv, refs, scenario_dir, cfg_dir, keys=keys)
+    anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=keys)
 
     print('# PROCESSING', len(anchors), 'anchors', '#'*32)
     if len(anchors) == 0:
         return
 
+    # verification report template
     template = None
     if args.template:
         with open(args.template, 'r') as fo:

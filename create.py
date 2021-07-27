@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!.venv/bin/python3
 
 import argparse
 from pathlib import Path
@@ -48,6 +48,8 @@ def parse_args():
     parser.add_argument('cmd', help='"encoder" or "decoder"')
     parser.add_argument('--scenario_dir', required=True, type=str, help='scenario directory')
     parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
+    parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
+    parser.add_argument('-s','--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
     parser.add_argument('-y', '--overwrite', required=False, action='store_true', default=False, help='overwrite if data already exists')
     parser.add_argument('--dry-run', required=False, action='store_true', default=False)
     args = parser.parse_args()
@@ -55,7 +57,7 @@ def parse_args():
     scenario_dir = Path(args.scenario_dir)
     assert scenario_dir.is_dir(), f'invalid scenario directory {scenario_dir}'
     
-    anchors_csv = scenario_dir / 'anchors.csv'
+    anchors_csv = scenario_dir / args.anchors_list
     assert anchors_csv.exists(), f'anchor list not found {anchors_csv.resolve()}'
     
     references_csv = scenario_dir / 'reference-sequence.csv'
@@ -81,7 +83,7 @@ def main():
 
     cmd, scenario_dir, anchors_csv, anchor_keys, references_csv, sequences_dir, cfg_dir, dry_run, y = parse_args()
     refs = reference_sequences_dict(references_csv, sequences_dir)
-    anchors = iter_anchors(anchors_csv, refs, scenario_dir, cfg_dir, keys=anchor_keys)
+    anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=anchor_keys)
 
     if cmd == "decoder":
         compute_anchor_metrics(*anchors, overwrite=y, dry_run=dry_run)

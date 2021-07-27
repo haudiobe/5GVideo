@@ -6,11 +6,12 @@ import os
 import json
 import csv
 
-from utils import VideoSequence, ColourPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
+from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
 from anchor import AnchorTuple, VariantData, ReconstructionMeta, iter_variants
 from utils import run_process
-from encoders import get_encoder
+from encoders import get_encoder, parse_encoding_bitdepth
+from convert import as_10bit_sequence
 from enum import Enum
 
 from typing import Dict
@@ -166,27 +167,34 @@ def hdrtools_input(v:VideoSequence, ref=True, start_frame=0, file_header=0):
     elif v.chroma_subsampling == ChromaSubsampling.CS_444:
         opts += ['-p', f'Input{i}ChromaFormat=3']
 
-    if v.colour_primaries == ColourPrimaries.BT_709:
+    if v.colour_primaries == ColorPrimaries.BT_709:
         opts += ['-p', f'Input{i}ColorPrimaries=0']
-    elif v.colour_primaries == ColourPrimaries.BT_2020:
+    elif v.colour_primaries == ColorPrimaries.BT_2020:
         opts += ['-p', f'Input{i}ColorPrimaries=1']
 
     return opts
-
 
 def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
     """
     the function assumes that reconstructed and reference sequences have the same properties
         eg. size, bitdepth, chroma ...
     """
+
     # PQ content metrics to be parsed from VTM encoder log
     assert a.reference.transfer_characteristics != TransferFunction.BT2020_PQ, f'unsupported transfer function, {TransferFunction.BT2020_PQ}'
 
     ref = a.reference
     assert ref.chroma_format == ChromaFormat.YUV, f'unsupported chroma format {ChromaFormat.YUV}'
 
-    dist = VideoSequence(reconstructed, **ref.properties)
-
+    # check if a pre-conversion step is needed
+    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+    if coded_bit_depth == ref.bit_depth:
+        vs = VideoSequence(reconstructed, **ref.properties)
+    elif coded_bit_depth == 10:
+        vs = as_10bit_sequence(a.reference)
+        assert vs.path.exists(), f'reference sequence needs pre-processing - Not found: {vs.path}'
+        dist = VideoSequence(reconstructed, **ref.properties)
+    
     input0 = hdrtools_input(ref, ref=True, start_frame= a.start_frame-1 )
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
     run = [
@@ -229,6 +237,20 @@ def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
     else:
         return metrics
 
+################################################################################
+
+def bitstream_size(bitstream:Path, dropSeiPrefix=True, dropSeiSuffix=False) -> int:
+    tmp = None
+    if dropSeiPrefix or dropSeiSuffix:
+        print(f"dropping SEI - prefix:{dropSeiPrefix} - suffix:{dropSeiSuffix}")
+        tool = os.getenv('SEI_REMOVAL_APP')
+        tmp = bitstream.with_suffix('.tmp')
+        cmd = [ tool, '-b', bitstream, '-o', tmp, '-p', 1, '-s', 0 ]
+        run_process(log, *cmd, dry_run=False)
+    s = int(os.path.getsize(tmp if tmp else bitstream))
+    if tmp:
+        os.remove(tmp)
+    return s
 
 ################################################################################
 
@@ -254,9 +276,8 @@ def vmaf_metrics(a:AnchorTuple, reconstructed:Path, model="version=vmaf_v0.6.1")
 
 ################################################################################
 
-
 def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:bool=True) -> VariantMetricSet:
-
+    
     metrics = hdrtools_metrics(a, r.reconstructed)
     
     if extra and (a.start_frame-1 == 0):
@@ -273,10 +294,12 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:b
         return VariantMetricSet(vd.variant_id, None)
 
     bitstream = a.working_dir / vd.bitstream['URI']
-    metrics[Metric.BITRATE.value] = int(os.path.getsize(bitstream) * 8 / a.duration) * 1e-3
+    s = bitstream_size(bitstream, dropSeiPrefix=True, dropSeiSuffix=False)
+    metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
 
     enc = get_encoder(vd.generation['encoder'])
 
+    # parse additional metrics from ENCODER log 
     enc_log = a.working_dir / vd.generation['log-file']
     if enc_log.exists():
         encoder_metrics = enc.encoder_log_metrics(enc_log)
@@ -286,6 +309,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:b
         metrics[Metric.BITRATELOG.value] = 0
         metrics[Metric.ENCODETIME.value] = 0
     
+    # parse additional metrics from DECODER log 
     dec_log = a.working_dir / vd.reconstruction['log-file']
     if dec_log.exists():
         decoder_metrics = enc.decoder_log_metrics(dec_log)
