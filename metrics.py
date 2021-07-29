@@ -5,16 +5,21 @@ import io
 import os
 import json
 import csv
+import copy
+import shlex
 
 from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
 from anchor import AnchorTuple, VariantData, ReconstructionMeta, iter_variants
 from utils import run_process
-from encoders import get_encoder, parse_encoding_bitdepth
-from convert import as_10bit_sequence
+from encoders import get_encoder, parse_encoding_bitdepth, parse_variant_qp
+from convert import as_10bit_sequence, as_8bit_sequence
 from enum import Enum
 
 from typing import Dict
+
+class VideoFormatException(BaseException):
+    pass
 
 class Metric(Enum):
     PSNR = "PSNR"
@@ -174,28 +179,38 @@ def hdrtools_input(v:VideoSequence, ref=True, start_frame=0, file_header=0):
 
     return opts
 
-def hdrtools_metrics(a:AnchorTuple, reconstructed:Path) -> dict:
+def hdrtools_metrics(a:AnchorTuple, reconstructed:Path, hdrconvert_preprocessed=True) -> dict:
     """
     the function assumes that reconstructed and reference sequences have the same properties
         eg. size, bitdepth, chroma ...
     """
 
+    ref = a.reference
+
     # PQ content metrics to be parsed from VTM encoder log
     assert a.reference.transfer_characteristics != TransferFunction.BT2020_PQ, f'unsupported transfer function, {TransferFunction.BT2020_PQ}'
-
-    ref = a.reference
     assert ref.chroma_format == ChromaFormat.YUV, f'unsupported chroma format {ChromaFormat.YUV}'
 
-    # check if a pre-conversion step is needed
+    # check if a pre-conversion step is needed, 
+    # we want to compute SDR metrics in the coded internal bit depth
+    # 
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if coded_bit_depth == ref.bit_depth:
+    if (not hdrconvert_preprocessed):
         vs = VideoSequence(reconstructed, **ref.properties)
-    elif coded_bit_depth == 10:
-        vs = as_10bit_sequence(a.reference)
+        dist = VideoSequence(reconstructed, **ref.properties)
+        dist.bit_depth = coded_bit_depth
+    elif (coded_bit_depth == ref.bit_depth):
+        vs = VideoSequence(reconstructed, **ref.properties)
+        dist = VideoSequence(reconstructed, **ref.properties)
+    # check if a pre-conversion step is needed, 
+    # we want to compute SDR metrics in the coded internal bit depth
+    elif hdrconvert_preprocessed and (coded_bit_depth == 10):
+        vs = as_10bit_sequence(ref)
         assert vs.path.exists(), f'reference sequence needs pre-processing - Not found: {vs.path}'
         dist = VideoSequence(reconstructed, **ref.properties)
+        dist.bit_depth = coded_bit_depth
     
-    input0 = hdrtools_input(ref, ref=True, start_frame= a.start_frame-1 )
+    input0 = hdrtools_input(vs, ref=True, start_frame=a.start_frame-1 )
     input1 = hdrtools_input(dist, ref=False, start_frame=0)
     run = [
         '-p', f'EnablehexMetric=1', # the parser collects hex values only
@@ -245,16 +260,28 @@ def bitstream_size(bitstream:Path, dropSeiPrefix=True, dropSeiSuffix=False) -> i
         print(f"dropping SEI - prefix:{dropSeiPrefix} - suffix:{dropSeiSuffix}")
         tool = os.getenv('SEI_REMOVAL_APP')
         tmp = bitstream.with_suffix('.tmp')
-        cmd = [ tool, '-b', bitstream, '-o', tmp, '-p', 1, '-s', 0 ]
+        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), '-p', str(1), '-s', str(0) ]
+        log = bitstream.with_suffix('.seiremoval.log')
         run_process(log, *cmd, dry_run=False)
     s = int(os.path.getsize(tmp if tmp else bitstream))
     if tmp:
         os.remove(tmp)
+        os.remove(log)
     return s
 
 ################################################################################
 
 def vmaf_metrics(a:AnchorTuple, reconstructed:Path, model="version=vmaf_v0.6.1"):
+    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+    if a.reference.bit_depth != 8:
+        print('/!\\ VMAF is enabled for 8bit content only /!\\')
+        return None
+    
+    vs = as_8bit_sequence(a.reference)
+    if not vs.path.exists():
+        print(f'/!\\ 8 bit reconstruction sequence needs pre-processing - Not found: {vs.path}')
+        return None
+
     output = reconstructed.with_suffix('.vmaf.json')
     log = reconstructed.with_suffix('.vmaf.log')
     vmaf_exec = os.getenv('VMAF_EXEC', 'vmaf')
@@ -270,21 +297,22 @@ def vmaf_metrics(a:AnchorTuple, reconstructed:Path, model="version=vmaf_v0.6.1")
         "-m", model
     ]
     run_process(log, *cmd, dry_run=a.dry_run)
-    with open(output, "rb") as fp:
-        data = json.load(fp)
-        return data["pooled_metrics"]["vmaf"]["mean"]
+    if output.exists():
+        with open(output, "rb") as fp:
+            data = json.load(fp)
+            return data["pooled_metrics"]["vmaf"]["mean"]
+    else:
+        print(f"VMAF output not found : {output}")
+        return None
+
 
 ################################################################################
 
-def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:bool=True) -> VariantMetricSet:
+def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, vmaf=True, encoder_log=True, decoder_log=False) -> VariantMetricSet:
     
     metrics = hdrtools_metrics(a, r.reconstructed)
     
-    if extra and (a.start_frame-1 == 0):
-        # https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/README.md#vmaf-models
-        # 'enable_transform' (aka --phone-model)
-        # see: https://github.com/Netflix/vmaf/blob/master/libvmaf/tools/cli_parse.c#L188 
-        # and: https://github.com/Netflix/vmaf/blob/master/python/vmaf/script/run_vmaf.py#L80
+    if vmaf and (a.start_frame-1 == 0):
         mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
         metrics[Metric.VMAF.value] = vmaf_metrics(a, r.reconstructed, mdl) # TBD. VMAF metric should come with a model definition
     else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
@@ -300,39 +328,48 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, r:ReconstructionMeta, extra:b
     enc = get_encoder(vd.generation['encoder'])
 
     # parse additional metrics from ENCODER log 
-    enc_log = a.working_dir / vd.generation['log-file']
-    if enc_log.exists():
-        encoder_metrics = enc.encoder_log_metrics(enc_log)
-        metrics = { **metrics, **encoder_metrics }
-    else:
-        print(f'#\tencoder log not found: {enc_log}')
-        metrics[Metric.BITRATELOG.value] = 0
-        metrics[Metric.ENCODETIME.value] = 0
+    if 'log-file' in vd.generation:
+        enc_log = a.working_dir / vd.generation['log-file']
+        if enc_log.exists():
+            encoder_metrics = enc.encoder_log_metrics(enc_log)
+            metrics = { **metrics, **encoder_metrics }
+        else:
+            print(f'#\tencoder log not found: {enc_log}')
+            metrics[Metric.BITRATELOG.value] = 0
+            metrics[Metric.ENCODETIME.value] = 0
     
     # parse additional metrics from DECODER log 
-    dec_log = a.working_dir / vd.reconstruction['log-file']
-    if dec_log.exists():
-        decoder_metrics = enc.decoder_log_metrics(dec_log)
-        metrics = { **metrics, **decoder_metrics }
-    else:
-        print(f'#\tdecoder log not found: {dec_log}')
-        metrics[Metric.DECODETIME.value] = 0
-    
+    if vd.reconstruction and vd.reconstruction.get('log-file', None):
+        dec_log = a.working_dir / vd.reconstruction['log-file']
+        if dec_log.exists():
+            decoder_metrics = enc.decoder_log_metrics(dec_log)
+            metrics = { **metrics, **decoder_metrics }
+        else:
+            print(f'#\tdecoder log not found: {dec_log}')
+            metrics[Metric.DECODETIME.value] = 0
+
     return VariantMetricSet(vd.variant_id, metrics)
 
 
 def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
-    fieldnames = ["key", VariantMetricSet.get_keys(a)]
-    for vf, vd in iter_variants(a):
-        assert vf.exists(), f'{vf} not found'
+    fieldnames = ["parameter", *VariantMetricSet.get_keys(a)]
+    for variant_path, variant_data in iter_variants(a):
+        assert variant_path.exists(), f'{variant_path} not found'
     if dst == None:
         dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
+    if not dst.parent.exists():
+        dst.parent.mkdir(parents=True)
     with open(dst, 'w') as fo:
         writer = csv.DictWriter(fo, fieldnames=fieldnames)
         writer.writeheader()
-        for vf, vd in iter_variants(a):
-            data = { k: vd.metrics[k] for k in fieldnames }
-            writer.writerow({ "key": vd.variant_id, **data })
+        for variant_path, variant_data in iter_variants(a):
+            row = {}
+            for k in fieldnames:
+                if k == "parameter":
+                    row[k] = parse_variant_qp(variant_data.variant_cli)
+                else:
+                    row[k] = variant_data.metrics[k]
+            writer.writerow(row)
 
 
 ################################################################################

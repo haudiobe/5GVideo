@@ -6,7 +6,14 @@
 3. video conversion step (8 to 10bit, EXR)
 4. running verifications
 5. creating test data
-6. plotting
+
+```
+**.py --scenario_dir /data/Bitstreams/{scenario}/{test} -k {anchor} [--dry-run]
+```
+
+the scripts process the target anchor in the target scenario.
+- anchor must be listed in `/data/Bitstreams/{scenario}/{test}/streams.csv`
+- the reference sequence for the anchor must be listed in `/data/Bitstreams/{scenario}/reference-sequences.csv`
 
 _____
 
@@ -26,13 +33,13 @@ docker build -t anchortools:latest -f ./docker/Dockerfile .
 
 **using the docker image**
 
-to run the scripts in docker container, you can mount your local data directory to `/data`, then specify the script and script options.
+to run the scripts in docker container, you can mount your local data directory to `/data`, then specify the script and options.
 
 ```
 base_dir=/path/to/host/data
 docker run -it \
     --mount type=bind,source=$base_dir,target=/data anchortools:latest \
-    ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
+    python3 ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
 ```
 
 
@@ -102,33 +109,31 @@ _____
 
 # 3. content conversion
 
-For some scenario/metric configurations it is required to pre-process content before running HDR tools (eg. 8 bit ref sequence with 10bit coded bit depth).
-
-To generate the required conversions:
+For some scenario/metric configurations it is required to pre-process content before running HDR tools (eg. 8 bit ref sequence with 10bit coded bit depth). To generate the required conversions:
 ```
 convert.py --scenario_dir /data/Bitstreams/Scenario-3-Screen/265 -k S3-A36-265
 ```
 If a conversion already exists (.json + .yuv both exist) it will be used.
 
-This conversion is done using the HDRTools' ChromaConvert program using the `convert.py`
 
 _____
 
 
 # 4. content verification
 
-`verify.py` script runs verification for bitstream or metrics, updates the anchor's metrics if verification is successfull. 
+`verify.py` script runs verification for bitstream or metrics, updates the anchor's metrics if verification is successfull.
+
 
 **bitstream verification**
 
 for a specific anchor:
 ```
-verify.py bitstream --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
+verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 bitstream 
 ```
 
 for the entire scenario/codec:
 ```
-verify.py bitstream --scenario_dir /data/Bitstreams/Scenario-3/265
+verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 bitstream 
 ```
 
 **decoder verification**
@@ -140,7 +145,7 @@ verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 decoder
 
 for the entire scenario/codec:
 ```
-verify.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265 decoder
+verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 decoder
 ```
 
 
@@ -176,10 +181,11 @@ _____
 
 the scripts can be used to generate new data for a given **scenario** / **encoder** :
 - `encoder`: encodes streams based on *Bitstreams/scenario/codec/streams.csv* and *Bitstreams/scenario/reference-sequences.csv*
-- `decoder`: decode stream, compute metrics and update streams metadata
+- `decoder`: decode stream, compute metrics and update individual streams json metadata
+- `metrics`: compute metrics and update individual streams json metadata
 
 
-## 5.1 anchor generation
+## 5.1 anchor bitstreams generation
 
 encode a specific anchor for a specific anchor:
 ```
@@ -196,14 +202,40 @@ create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265
 
 decode and compute metrics for a specific anchor:
 ```
-create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265`
+create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
+```
+
+compute metrics for a specific anchor, if it was already properly reconstructed:
+```
+create.py metrics --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
 ```
 
 for the entire scenario/codec:
 ```
 create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265
+create.py metrics --scenario_dir /data/Bitstreams/Scenario-3/265
 ```
+
+
 
 ## 5.3 encoder implementation
 
-implement the EncoderBase interface (encoder_id, encode_variant, decode_variant) and decorate your class (@register_encoder)
+To implement new encoders, take look at `encoders.py`. 
+You need to subclass the EncoderBase class and decorate your class (@register_encoder).
+Encoder implementation only need to supply an encoder ID, 
+implement the function that generate the shell command lines for encoding/decoding,
+and optionaly parse metrics from the logs or stat files they produce.
+
+# FAQ
+
+> I have my own encoding scripts, how do I feed the results ?
+
+These scripts should support your workflow providing that:
+- your data follows the reference directory layout
+- you can generate the bitstream json metadata to describe and point to your bistream file.
+
+Your `Bitstreams/scenario/test/streams.csv` must list all the anchors for your test on a given scenario. The anchors/variants should be located in that directory too. Each CSV row describes an anchor, which maps to a subfolder containing its variants. 
+
+The scripts load the bistream json metadata for each variant, providing all the informations to perform post-encoding processing steps.
+
+Take a look at `anchors.py`, it provides the `VariantData` which loads/saves the individual bitstream's json metadata. it also provides functions to iterate the csv files.

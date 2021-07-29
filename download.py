@@ -136,7 +136,7 @@ class AnchorTupleCtx:
         if (keys == None) and hasattr(self, "key"):
             keys = [self.key]
         refs = reference_sequences_dict(self.references_csv, self.sequences_dir)
-        return iter_anchors(self.anchors_csv, refs, self.scenario_dir, keys=keys, raise_if_not_exists=False)
+        return iter_anchors(self.anchors_csv, refs, self.scenario_dir, keys=keys)
 
 def bytesize_match(local:Path, remote:str):
     r = requests.head(remote, allow_redirects=True)
@@ -189,7 +189,7 @@ def bitstream_uri(p:Path) -> str:
         return p.parent / VariantData.load( p ).bitstream['URI']
 
 
-async def dl_variant(variant:str, base_dir:Path, base_uri:str, overwrite=False, dry_run=False) -> BaseException:
+async def dl_variant(variant:Path, base_dir:Path, base_uri:str, overwrite=False, dry_run=False) -> BaseException:
     err = await dl_if_not_exists(
             str(variant.relative_to(base_dir)), 
             base_dir, 
@@ -232,11 +232,10 @@ async def download_variant_data(ctx:AnchorTupleCtx, base_uri:str):
         dl_all_data.append(pending)
 
         # variant bitstreams
-        for variant, _ in iter_variants(a):
+        for variant_path, _ in iter_variants(a):
             if ctx.dry_run and not variant.exists():
-                # meta will not be downloaded in dry_run
                 continue
-            pending = dl_variant(variant, base_dir, base_uri, overwrite=dl_overwrite, dry_run=ctx.dry_run)
+            pending = dl_variant(variant_path, base_dir, base_uri, overwrite=dl_overwrite, dry_run=ctx.dry_run)
             dl_all_data.append(pending)
 
     await asyncio.gather( *dl_all_data )

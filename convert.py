@@ -129,6 +129,13 @@ def as_10bit_sequence(yuv_in:VideoSequence) -> VideoSequence :
     yuv_out.path = conversion_path(yuv_out.path, '10bit')
     return yuv_out
 
+def as_8bit_sequence(yuv_in:VideoSequence) -> VideoSequence :
+    # return a modified VideoSequence obj pointing to the 10bit conversion
+    yuv_out = copy.deepcopy(yuv_in)
+    yuv_out.bit_depth = 8
+    yuv_out.path = conversion_path(yuv_out.path, '8bit')
+    return yuv_out
+
 def hdr_convert_cmd(yuv_in:VideoSequence, yuv_out:VideoSequence, file_header=0, quiet=False, logfile:Path=None):
     assert yuv_in.width == yuv_out.width, "resizing not supported, in/out width must match"
     assert yuv_in.height == yuv_out.height, "resizing not supported, in/out width must match"
@@ -201,7 +208,7 @@ def main():
 
     for a in ctx.iter_anchors():
 
-        # convert 8bit ref sequences to 10bit
+        # convert 8bit ref sequences to 10bit for HDR tools (scenario-3 & scenario-5)
         coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
         if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
             if str(a.reference.path) in _8to10bit:

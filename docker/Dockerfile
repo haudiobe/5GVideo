@@ -90,6 +90,8 @@ ENV SCM_DECODER=/home/deps/SCM/bin/TAppDecoderStatic
 
 ## ETM public repo ? ###
 
+ENV SEI_REMOVAL_APP=/home/deps/HM/bin/SEIRemovalAppStatic
+
 WORKDIR /home/5GVideo
 COPY requirements.txt ./
 RUN pip install -r ./requirements.txt

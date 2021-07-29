@@ -40,7 +40,7 @@ class ReconstructionMeta:
     def to_dict(self) -> dict:
         return {
             "decoder": self.decoder_id,
-            "log-file": self.decoder_log.name,
+            "log-file": self.decoder_log.name if hasattr(self.decoder_log, 'decoder_log') else None,
             "md5": self.reconstructed_md5
         }
 
@@ -57,26 +57,29 @@ class VariantData:
             metrics = data.get("Metrics", None)
             if metrics != None:
                 for k, v in metrics.items():
-                    metrics[k] = float(v)
+                    try:
+                        metrics[k] = float(v)
+                    except BaseException:
+                        metrics[k] = None
+
             verification = data.get("Verification", None)
             contact = data.get("contact", None)
             copyright = data.get("copyRight", None)
             return VariantData(generation, bitstream, reconstruction, metrics, verification, contact, copyright)
 
     @classmethod
-    def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, bitstream_fp:Path, encoder_log:Path) -> 'VariantData':
-        assert bitstream_fp.exists(), f'{bitstream_fp} not found'
+    def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, encoder_log:Path, bitstream_fp:Path, reconstruction:'ReconstructionMeta') -> 'VariantData':
         generation = {
             "key": variant_id,
             "sequence": a.reference.path.name,
             "encoder": a.encoder_id,
-            "config-file": a.encoder_cfg,
+            "config-file": a.encoder_cfg.name,
             "variant": variant_cli,
             "log-file": encoder_log.name
         }
         bitstream = {
             "key": variant_id,
-            "URI": str(bitstream_fp),
+            "URI": bitstream_fp.name,
             "md5": md5_checksum(bitstream_fp),
             "size": bitstream_fp.stat().st_size
         }
@@ -85,7 +88,24 @@ class VariantData:
             'e-mail': a.reference.contact['e-mail']
         }
         copyright = a.reference.copyright
-        return VariantData(generation, bitstream, None, None, None, contact, copyright)
+        return VariantData(generation, bitstream, reconstruction.to_dict(), None, None, contact, copyright)
+
+    def dumps(self):
+        data = {
+            "Bitstream": self._bitstream,
+            "Generation": self._generation,
+            "Reconstruction": self._reconstruction,
+            "Metrics": self._metrics,
+            "Verification": self._verification,
+            "copyRight": self._copyright,
+            "Contact": self._contact
+        }
+        return json.dumps(data, indent=4)
+
+    def save_as(self, fp:Path):
+        data = self.dumps()
+        with open(fp, 'w') as fo:
+            fo.write(data)
 
     def __init__(self, generation:dict=None, bitstream:dict=None, reconstruction:dict=None, metrics:dict=None, verification:dict=None, contact:dict=None, copyright:str=''):
         self._generation = generation
@@ -156,7 +176,12 @@ class VariantData:
         if b == None:
             self._metrics = None
         keys = [ "Bitrate", "BitrateLog", "DecodeTime", "EncodeTime", "MS_SSIM", "UPSNR", "VMAF", "VPSNR", "YPSNR" ]
-        self._metrics = { k: float(b[k]) for k in keys }
+        self._metrics = {}
+        for k in keys:
+            try:
+                self._metrics[k] = float(b[k])
+            except BaseException:
+                self._metrics[k] = None
 
     #######################################
 
@@ -214,31 +239,13 @@ class VariantData:
                 return False
         return True
 
-    def dumps(self):
-        data = {
-            "Bitstream": self._bitstream,
-            "Generation": self._generation,
-            "Reconstruction": self._reconstruction,
-            "Metrics": self._metrics,
-            "Verification": self._verification,
-            "copyRight": self._copyright,
-            "Contact": self._contact
-        }
-        return json.dumps(data, indent=4)
-
-    def save_as(self, fp:Path):
-        data = self.dumps()
-        with open(fp, 'w') as fo:
-            fo.write(data)
-
 
 #########################################################################################################
 
 
 class AnchorTuple:
     
-    def __init__(self, anchor_dir:Path, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:str, anchor_key:str, description:str=None, start_frame:int=0, frame_count:int=None, dry_run:bool=False, raise_if_not_exists=True):
-        assert (not raise_if_not_exists) or anchor_dir and anchor_dir.is_dir(), f'[{anchor_key}] - invalid working directory : {anchor_dir}'
+    def __init__(self, anchor_dir:Path, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:str, anchor_key:str, description:str=None, start_frame:int=0, frame_count:int=None, dry_run:bool=False):
         self._working_dir = anchor_dir
         self._encoder_id = encoder_id
         self._encoder_cfg = encoder_cfg
@@ -300,17 +307,24 @@ class AnchorTuple:
         return self.encoder_cfg.stem
 
     def iter_variants_args(self) -> Generator[Tuple[str, list], None, None]:
-        """
-        yields (variant_id, variant_encoder_args)
+        """generator to iterate over (variant_id, variant_encoder_args)
+            variant_id can be used to locate variant bitstream json file.
+            variant_encoder_args is parsed by encoders implementations, 
+                eg. using by python's shlex module.
+                variant_encoder_args is stored as is in the bitstream json metadata.
         """
         for qp in self._variants:
-            yield self._anchor_key.replace('<QP>', str(qp)), (qp,)
-    
+            yield self._anchor_key.replace('<QP>', str(qp)), f'-qp {qp}'
+
     @property
     def anchor_key(self):
         return self._anchor_key
 
-
+    def relative_path(self, p:Path) -> Path:
+        if p.is_relative_to(self.working_dir):
+            return p.relative_to(self.working_dir)
+        else:
+            return p
 
 #########################################################################################################
 
@@ -330,13 +344,20 @@ def iter_ref_locations(reference_list:Path) -> Iterable[str]:
     return refs
 
 def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
+    """produces a dict mapping a reference sequence key 
+        to a VideoSequence if the sequence exists - None if it doesn't exist. 
+    """
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
             meta = root_dir / __fix_sidecar_meta(row[RefSequenceList.LOC])
+            k = row[RefSequenceList.KEY]
+            if not meta.exists():
+                refs[k] = None
+                continue
             vs = VideoSequence.from_sidecar_metadata(meta)
-            assert (vs.frame_count / vs.frame_rate) == float(row[RefSequenceList.DUR]), f'(frame_count / frame_rate) != expected duration'
-            refs[row[RefSequenceList.KEY]] = vs
+            assert (vs.frame_count / vs.frame_rate) == float(row[RefSequenceList.DUR]), f'(frame_count / frame_rate) != "duration found in `scenario/reference-sequence.csv` file for `{k}`"'
+            refs[k] = vs
     return refs
 
 def iter_anchors_csv(anchor_list:Path):
@@ -344,7 +365,7 @@ def iter_anchors_csv(anchor_list:Path):
         for row in csv.DictReader(fo):
             yield row
 
-def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None, raise_if_not_exists=True) -> Iterable[AnchorTuple]:
+def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
     anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
@@ -361,13 +382,13 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
             anchor_dir = scenario_dir / row[AnchorList.KEY]
             bitsream_key_template = row[AnchorList.VARIANT_KEY]
             anchors.append(
-                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count, raise_if_not_exists=raise_if_not_exists)
+                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count)
             )
     return anchors
 
 def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
-    """ 
-    yields (a.working_dir/variant.json, VariantData)
+    """Iterate the variant bitstream's json metadata path of the anchor, 
+        loads and returns VariantData if the metadata file exists.
     """
     for variant_id, _ in a.iter_variants_args():
         vfp = a.working_dir / f'{variant_id}.json'

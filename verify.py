@@ -169,7 +169,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     compute_md5 = vd.reconstruction['md5'] != 'unknown'
     r = dec.decode_variant(a, vd, tmp, md5=compute_md5)
     
-    metrics_new = compute_metrics(a, vd, r, extra=(not DEBUG_SKIP_VMAF)).to_dict()
+    metrics_new = compute_metrics(a, vd, r, vmaf=(not DEBUG_SKIP_VMAF)).to_dict()
 
     if a.dry_run:
         return False, "/!\\ dry run"
