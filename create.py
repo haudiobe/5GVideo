@@ -20,12 +20,12 @@ def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrit
                 print('# skipping', vf, ' - use -y to overwrite')
                 continue
             if decode:
-                rec = enc.decode_variant(a, vd.variant_id, vd.variant_cli)
+                rec = enc.decode_variant(a, vd, md5=True)
                 vd.reconstruction = rec.to_dict()
             else:
                 log_file = getattr(vd.reconstruction, 'log-file', None)
                 rec = ReconstructionMeta(a.encoder_id, a.working_dir / f'{vd.variant_id}.yuv', Path(log_file) if log_file else None, md5=False)
-            m = compute_metrics(a, vd, rec, vmaf=True)
+            m = compute_metrics(a, vd, vmaf=True)
             vd.metrics = m.to_dict()
             vd.save_as(vf)
         anchor_metrics_to_csv(a)

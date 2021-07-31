@@ -270,6 +270,12 @@ class AnchorTuple:
     def working_dir(self) -> Path:
         return self._working_dir
 
+    @working_dir.setter
+    def working_dir(self, wd:Path):
+        if not issubclass(type(wd), Path):
+            raise ValueError('Expecting a valid pathlib.Path')
+        self._working_dir = wd
+
     @property
     def encoder_id(self):
         return self._encoder_id
@@ -328,19 +334,15 @@ class AnchorTuple:
 
 #########################################################################################################
 
-def __fix_sidecar_meta(loc):
-    # @FIXME: this file doesn't follow the pattern
-    if loc != 'Baolei-Man':
-        meta = f'{loc}/{loc}.json'
-    else:
-        meta = f'{loc}/{str(loc).lower()}.json'
-    return meta
+def ref_location(row):
+    loc = row[RefSequenceList.LOC]
+    return f'{loc}/{loc}.json'
 
 def iter_ref_locations(reference_list:Path) -> Iterable[str]:
     refs = []
     with open(reference_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
-            refs.append( __fix_sidecar_meta(row[RefSequenceList.LOC]) )
+            refs.append( ref_location(row) )
     return refs
 
 def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
@@ -350,7 +352,7 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Di
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
-            meta = root_dir / __fix_sidecar_meta(row[RefSequenceList.LOC])
+            meta = root_dir / ref_location(row)
             k = row[RefSequenceList.KEY]
             if not meta.exists():
                 refs[k] = None

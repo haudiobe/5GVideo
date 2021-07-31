@@ -9,12 +9,14 @@ from enum import Enum
 import math
 import json
 from csv import DictWriter
+import copy
 
 from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
 from encoders import get_encoder
 from metrics import Metric, VariantMetricSet, compute_metrics, anchor_metrics_to_csv
+from convert import can_compute_metrics
 
 DEBUG_FIRST_VARIANT_ONLY=False 
 DEBUG_SKIP_VMAF=False
@@ -111,11 +113,14 @@ def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVe
     elif verification_type == AnchorVerificationCmd.DECODER:
         report["type"] = "decoder"
 
-    # save verification report
-    log_file = vf.parent / f'{vd.variant_id}_verification_{idx}_{report["type"]}_{ts.strftime("%d%m%y")}.log'
-    with open(log_file, 'w') as fo:
-        fo.writelines(log_data)
-    report["information"] = str(Path('.') / log_file.name)
+    if log_data:
+        # save verification report
+        log_file = vf.parent / f'{vd.variant_id}_verification_{idx}_{report["type"]}_{ts.strftime("%d%m%y")}.log'
+        with open(log_file, 'w') as fo:
+            fo.writelines(log_data)
+        report["information"] = str(Path('.') / log_file.name)
+    else:
+        report["information"] = ''
 
     vd.verification["Reports"].append(report)
     vd.save_as(vf)
@@ -150,7 +155,9 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     3. compare with values defined in VariantData
     return a diff in case of missmatch
     """
-    
+    assert can_compute_metrics(a, vd), f'conversion'
+    assert vd.metrics != None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
+
     log = [f'= {vd.variant_id} | decoder verification =====\n']
     success = True
 
@@ -162,25 +169,25 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
         tmp = vf.parent.with_suffix('.tmp')
     else:
         tmp = tmp_dir / vf.parent.with_suffix('.tmp').name
-
+    
     if not a.dry_run:
         tmp.mkdir(exist_ok=True)
 
-    compute_md5 = vd.reconstruction['md5'] != 'unknown'
-    r = dec.decode_variant(a, vd, tmp, md5=compute_md5)
-    
-    metrics_new = compute_metrics(a, vd, r, vmaf=(not DEBUG_SKIP_VMAF)).to_dict()
+    verify_reconstruction_md5 = vd.reconstruction['md5'] != 'unknown'
+    r = dec.decode_variant(a, vd, tmp, md5=verify_reconstruction_md5)
+    metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF), dist_dir=tmp).to_dict()
 
     if a.dry_run:
         return False, "/!\\ dry run"
 
-    md5_new = r.reconstructed_md5
-    md5_ref = vd.reconstruction['md5']
-    if md5_new != md5_ref:
-        log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
-        success = False
-    
-    skipped = [Metric.BITRATE.value, Metric.BITRATELOG.value, Metric.DECODETIME, Metric.ENCODETIME]
+    if verify_reconstruction_md5:
+        md5_new = r.reconstructed_md5
+        md5_ref = vd.reconstruction['md5']
+        if md5_new != md5_ref:
+            log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
+            success = False
+        
+    skipped = [Metric.BITRATE.value, Metric.BITRATELOG.value, Metric.DECODETIME.value, Metric.ENCODETIME.value]
     for m in VariantMetricSet.get_keys(a):
         if m in skipped:
             continue
@@ -379,8 +386,8 @@ def main():
         verification_type = AnchorVerificationCmd.BITSTREAM
         if args.cfg_dir != None:
             cfg_dir = args.cfg_dir
-        if not cfg_dir.exists():
-            parser.error("`a valid --cfg_dir` is required for bitstream verification")
+            if not cfg_dir.exists():
+                parser.error("`a valid --cfg_dir` is required for bitstream verification")
 
     elif args.type == "decoder":
         verification_type = AnchorVerificationCmd.DECODER

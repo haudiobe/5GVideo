@@ -3,12 +3,15 @@ FROM python:buster
 ARG HM_VERSION=tags/HM-16.22
 ARG SCM_VERSION=tags/HM-16.21+SCM-8.8
 ARG VTM_VERSION=tags/VTM-11.0
-# adds CMakelist.txt on top of tags/JM-19.0
+# tags/JM-19.0 is the last tag for JM, missing some build toolchain updates commits,
+# therefor the latest commit from master is referenced here.
 ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
-ARG HDRTOOLS_VERSION=tags/v0.19.1
+ARG HDRTOOLS_VERSION=tags/v0.22
 ARG VMAF_VERSION=tags/v2.1.1
-# build HDRTOOLS without JM_PSNR C flag
-ARG jm_psnr_undef
+# VTM w/ HDRTOOLS extension: -DEXTENSION_HDRTOOLS=on
+ARG VTM_EXTENSION_HDRTOOLS
+# build HDRTOOLS without -D JM_PSNR
+ARG HDRTOOLS_JM_PSNR 
 
 RUN DEBIAN_FRONTEND=noninteractive \
   apt update && apt install --assume-yes --no-install-recommends \
@@ -17,20 +20,35 @@ RUN DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /home/deps
 
+## JM ###
+RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/JM.git && \
+  cd JM && git checkout ${JM_VERSION} 
+
+# ignoring warnings to build on linux here
+COPY docker/JM_ignore_compiler_warnings.patch ./JM/JM_ignore_compiler_warnings.patch
+RUN cd ./JM && git apply ./JM_ignore_compiler_warnings.patch
+
+RUN mkdir -p ./JM/build && cd JM/build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    make -j 4
+
+ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
+ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
+
 ## HDRtools ###
 RUN git clone https://gitlab.com/standards/HDRTools.git && \
   cd ./HDRTools && git checkout ${HDRTOOLS_VERSION}
 
-# docker build --build-arg jm_psnr_undef=1 to use this option
+# docker build --build-arg HDRTOOLS_JM_PSNR=1 to use this option
 COPY docker/HDRTOOLS_disable_jm_psnr.patch ./HDRTools/HDRTOOLS_disable_jm_psnr.patch
-RUN [ ! -z "${jm_psnr_undef}" ] && cd ./HDRTools && git apply ./HDRTOOLS_disable_jm_psnr.patch || echo "build HDRTOOLS w/ -D JM_PSNR"
+RUN [ ! -z "${HDRTOOLS_JM_PSNR}" ] && cd ./HDRTools && git apply ./HDRTOOLS_disable_jm_psnr.patch || echo "build HDRTOOLS w/ -D JM_PSNR"
 
 RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
   make -j 4
 
 ENV HDRMETRICS_TOOL=/home/home/deps/HDRTools/build/bin/HDRMetrics
-ENV HDRTOOLS_CHOMACONVERT=/home/deps/HDRTools/build/bin/ChromaConvert
+ENV HDRCONVERT_TOOL=/home/deps/HDRTools/build/bin/HDRConvert
 
 ## HM ###
 RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/HM.git && \
@@ -48,26 +66,12 @@ RUN mkdir VTM && git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM 
 
 RUN mkdir -p ./VTM/build && cd ./VTM/build && \
   ln -s /home/deps/HDRTools/common /home/deps/VTM/source/Lib/HDRLib && \
-  cmake .. -DCMAKE_BUILD_TYPE=Release -DEXTENSION_HDRTOOLS=on && \
+  [ ! -z "${VTM_EXTENSION_HDRTOOLS}" ] && defines='-DEXTENSION_HDRTOOLS=on' || defines='' && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release $defines && \
   make -j 4
 
 ENV VTM_ENCODER=/home/deps/VTM/bin/EncoderAppStatic
 ENV VTM_DECODER=/home/deps/VTM/bin/DecoderAppStatic
-
-## JM ###
-RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/JM.git && \
-  cd JM && git checkout ${JM_VERSION} 
-
-# ignoring warnings to build on linux here
-COPY docker/JM_ignore_compiler_warnings.patch ./JM/JM_ignore_compiler_warnings.patch
-RUN cd ./JM && git apply ./JM_ignore_compiler_warnings.patch
-
-RUN mkdir -p ./JM/build && cd JM/build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    make -j 4
-
-ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
-ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
 
 ## VMAF ###
 RUN apt install --assume-yes --no-install-recommends nasm ninja-build doxygen && \

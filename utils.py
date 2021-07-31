@@ -46,21 +46,31 @@ def md5_checksum(p:Path):
         return md5.hexdigest()
 
 def run_process(log:str, *cmd, dry_run=False, verbose=True):
+
+    print("\n" + "#" * 128 + "\n")
     if verbose:
         print(" ".join(cmd))
     if dry_run:
         return
-    with open(log, 'w') as logfile:
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
-            while True:
-                out = proc.stdout.readline().decode('utf-8')
-                logfile.write(out)
-                print(out.rstrip('\n'))
-                if proc.poll() != None:
-                    print(f'exit code: {proc.returncode} - {cmd[0]}')
-                    if proc.returncode != 0:
-                        raise Exception(f'command failled {proc.returncode}')
-                    return
+    logfile = open(log, 'w')
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    while True:
+        out = proc.stdout.readline().decode('utf-8')
+        logfile.write(out)
+        print(out.rstrip('\n'))
+        if proc.poll() != None:
+            proc.stdout.flush()
+            print(out.rstrip('\n'))
+            print(f'\n# exit code: {proc.returncode} - {cmd[0]}')
+            print("#"*128 + "\n")
+            if proc.returncode != 0:
+                proc.terminate()
+                raise Exception(f'command failled {proc.returncode}: {out}')
+            break
+    logfile.flush()
+    logfile.close()
+    proc.stdout.close()
+    proc.terminate()
 
 
 class VideoInfo:
@@ -138,7 +148,7 @@ class VideoInfo:
 
 class VideoSequence(VideoInfo):
     
-    def __init__(self, filename:str, sequence:dict = None, contact:dict = None, copyright:str = None, **properties):
+    def __init__(self, filename:str, sequence:dict = {}, contact:dict = {}, copyright:str = '', **properties):
         self.path = Path(filename).resolve()
         self.contact = contact
         self.copyright = copyright
@@ -155,7 +165,7 @@ class VideoSequence(VideoInfo):
             "Contact": self.contact
         }
         with open(path, 'w') as writer:
-            json.dump(data, writer)
+            json.dump(data, writer, indent=4)
 
     @staticmethod
     def from_sidecar_metadata(metadata:Path) -> 'VideoSequence':
@@ -168,15 +178,15 @@ class VideoSequence(VideoInfo):
             raise Exception(f'missing sidecar metadata for {metadata}')
         assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
         assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
-        assert 'Key' in data['Sequence'], f"{metadata}\n'Key' key missing from 'Sequence' metadata"
-        assert 'Name' in data['Sequence'], f"{metadata}\n'Name' key missing from 'Sequence' metadata"
-        assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
-        # assert 'size' in data['Sequence'], f"{metadata}\n'size' key missing from 'Sequence' metadata"
-        assert 'Background' in data['Sequence'], f"{metadata}\n'Background' key missing from 'Sequence' metadata"
-        assert 'Scenario' in data['Sequence'], f"{metadata}\n'Scenario' key missing from 'Sequence' metadata"
-        assert 'thumbnail' in data['Sequence'], f"{metadata}\n'thumbnail' key missing from 'Sequence' metadata"
-        assert 'preview' in data['Sequence'], f"{metadata}\n'preview' key missing from 'Sequence' metadata"
-        assert 'TR26.955' in data['Sequence'], f"{metadata}\n'TR26.955' key missing from 'Sequence' metadata"
+        # assert 'Key' in data['Sequence'], f"{metadata}\n'Key' key missing from 'Sequence' metadata"
+        # assert 'Name' in data['Sequence'], f"{metadata}\n'Name' key missing from 'Sequence' metadata"
+        # assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
+        # # assert 'size' in data['Sequence'], f"{metadata}\n'size' key missing from 'Sequence' metadata"
+        # assert 'Background' in data['Sequence'], f"{metadata}\n'Background' key missing from 'Sequence' metadata"
+        # assert 'Scenario' in data['Sequence'], f"{metadata}\n'Scenario' key missing from 'Sequence' metadata"
+        # assert 'thumbnail' in data['Sequence'], f"{metadata}\n'thumbnail' key missing from 'Sequence' metadata"
+        # assert 'preview' in data['Sequence'], f"{metadata}\n'preview' key missing from 'Sequence' metadata"
+        # assert 'TR26.955' in data['Sequence'], f"{metadata}\n'TR26.955' key missing from 'Sequence' metadata"
         # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
         raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
         assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'

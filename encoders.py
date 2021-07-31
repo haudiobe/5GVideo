@@ -4,7 +4,7 @@ import re
 import shlex
 from pathlib import Path
 from typing import List
-from utils import run_process, ChromaFormat, ChromaSubsampling
+from utils import run_process, ChromaFormat, ChromaSubsampling, VideoSequence
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 
@@ -100,8 +100,15 @@ class EncoderBase(ABC):
         if a.dry_run:
             return VariantData()
 
+        dist = VideoSequence(reconstruction, **a.reference.properties)
+        dist.start_frame = 1
+        dist.frame_count = a.reference.frame_count
+        coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+        dist.bit_depth = coded_bit_depth
+        dist.dump(dst_dir / f'{variant_id}.yuv.json')
+
         rec = ReconstructionMeta(
-            cls.encoder_id,
+            a.encoder_id,
             reconstruction,
             None,
             md5=True
@@ -115,6 +122,7 @@ class EncoderBase(ABC):
             assert a.dry_run or dst_dir.is_dir(), f'decoder output directory not found: {dst_dir}'
         else:
             dst_dir = a.working_dir
+
         decoder = get_env(cls.decoder_bin)
         bitstream = a.working_dir / v.bitstream['URI']
         reconstructed = dst_dir / f'{bitstream.stem}.yuv'
@@ -122,7 +130,15 @@ class EncoderBase(ABC):
         
         cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
         run_process(logfile, decoder, *cmd, dry_run=a.dry_run)
-        
+
+        dist = VideoSequence(reconstructed, **a.reference.properties)
+        dist.start_frame = 1
+        dist.frame_count = a.reference.frame_count
+        coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+        dist.bit_depth = coded_bit_depth
+        if not a.dry_run:
+            dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
+
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
     
 def parse_encoding_bitdepth(cfg:Path, encoder_id:str=None):
@@ -161,7 +177,8 @@ def get_env(var:str):
 def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=None):
     """HM & VTM softwares share a common set of options
     """
-    cmd = { "-c": f'{a.encoder_cfg}',
+    cmd = { 
+        "-c": f'{a.encoder_cfg}',
         "--InputFile": f'{a.reference.path}',
         "--BitstreamFile": str(bitstream),
         "--FrameRate": round(a.reference.frame_rate) ,
@@ -171,14 +188,16 @@ def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=No
         "--SourceHeight": f'{a.reference.height}' ,
         "--InputBitDepth": f'{a.reference.bit_depth}' ,
         "--InputBitDepthC": f'{a.reference.bit_depth}' ,
-        "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}' }
-
-    if not a.reference.video_full_range:
+        "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}',
+        "--ChromaSampleLocTypeTopField": f'{a.reference.chroma_sample_loc_type}',
+        "--ChromaSampleLocTypeBottomField": f'{a.reference.chroma_sample_loc_type}'
+    }
+    if a.reference.video_full_range:
         # If 1 then clip input video to the Rec. 709 Range on loading 
         #   when Internal-BitDepth is less than MSBExtendedBitDepth.
-        cmd["--ClipInputVideoToRec709Range"] = 1
-    else:
         cmd["--ClipInputVideoToRec709Range"] = 0
+    else:
+        cmd["--ClipInputVideoToRec709Range"] = 1
     
     assert a.reference.hdr_master_display == None, "Table 34: Mastering display colour volume SEI message encoder paramete"
     assert a.reference.hdr_max_cll == None
@@ -187,7 +206,7 @@ def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=No
     if reconstruction != None:
         cmd["--ReconFile"] = str(reconstruction)
         # /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
-        cmd["--ClipOutputVideoToRec709Range"] = cmd["--ClipInputVideoToRec709Range"]
+        # cmd["--ClipOutputVideoToRec709Range"] = cmd["--ClipInputVideoToRec709Range"]
     
     cmd["--PrintMSSSIM"] = 1
     cmd["--PrintHexPSNR"] = 1
@@ -201,7 +220,7 @@ class HM(EncoderBase):
     encoder_id = os.getenv("HM_VERSION", "HM")
     encoder_bin = "HM_ENCODER"
     decoder_bin = "HM_DECODER"
-
+    
     @classmethod
     def get_variant_cli(cls, args:str) -> List[str]:
         qp = parse_variant_qp(args)
@@ -231,7 +250,7 @@ class HM(EncoderBase):
         ]
     
     @classmethod
-    def encoder_log_metrics(cls, logp:Path):
+    def encoder_log_metrics(cls, logp:Path) -> dict:
         summary = False
         keys = None
         values = None
@@ -348,6 +367,8 @@ class JM(EncoderBase):
             "-p", f'TraceFile={tracefile}',
             "-p", f'StatsFile={statsfile}'
         ]
+        
+        assert a.reference.chroma_loc_type == 2, 'chroma_loc_type != 2 not implemented'
 
         if a.reference.interleaved:
             args += ["-p", "Interleaved=1"]
@@ -417,6 +438,9 @@ class ETM(EncoderBase):
             '--chroma_format', f'{cf}',
             # '--hdr_metric' requires specific  compilation flags
         ]
+        
+        assert a.reference.chroma_loc_type == 2, 'chroma_loc_type != 2 not implemented'
+
         if reconstruction:
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
             args += ['-r', reconstruction ]

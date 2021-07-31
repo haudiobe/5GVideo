@@ -15,22 +15,6 @@ from queue import Queue
 import logging
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 
-def __fix_sequence_name(name) -> str:
-    # @FIXME: the file names in the metadata do not match the actual filenames
-    if name == "Mission-Control":
-        return "mission-control"
-    elif name == "Baolei-Man":
-        return "baolei-man"
-    elif name == "MineCraft":
-        return "MINECRAFT"
-    elif name == "CS-GO":
-        return "cs-go"
-    elif name == "StarCraft":
-        return "starcraft"
-    elif name == "world-of-warCraft":
-        return "World-of-WarCraft"
-    return name
-
 dl_executor = ThreadPoolExecutor(max_workers=10)
 dl_errors = []
 dl_count = 0
@@ -267,7 +251,7 @@ async def download_reference_sequence(meta_location:str, base_dir:Path, base_uri
     err = await dl_if_not_exists(meta_location, base_dir, base_uri, overwrite=overwrite, dry_run=dry_run)
     if not err:
         vs = VideoSequence.from_sidecar_metadata( base_dir / meta_location )
-        stem = __fix_sequence_name(vs.path.stem)
+        stem = vs.path.stem
         sequence_location = f'ReferenceSequences/{vs.path.parent.stem}/{stem}{vs.path.suffix}'
         await dl_if_not_exists(sequence_location, base_dir, base_uri, overwrite=overwrite, dry_run=dry_run)
 
