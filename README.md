@@ -99,7 +99,7 @@ Make sure these point to the correct software version for each scenario.
 _____
 
 
-# 2. downloading content from the reference server
+# 2. Downloading content from the reference server
 
 The `download.py` script downloads content from the public [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/).
 
@@ -128,7 +128,7 @@ downloads the encoder configuration, and all variant data
 _____
 
 
-# 3. content conversion
+# 3. Content conversion
 
 For some scenario/metric configurations it is required to pre-process content before running HDR tools (eg. 8 bit ref sequence with 10bit coded bit depth). To generate the required conversions:
 ```
@@ -140,7 +140,9 @@ If a conversion already exists (.json + .yuv both exist) it will be used, otherw
 _____
 
 
-# 5. creating new test data
+# 4. creating new test data
+
+## 4.1 Introduction
 
 the scripts can be used to generate new data for a given **scenario** / **encoder** :
 - `encoder`: encodes streams based on *Bitstreams/scenario/codec/streams.csv* and *Bitstreams/scenario/reference-sequences.csv*
@@ -148,7 +150,7 @@ the scripts can be used to generate new data for a given **scenario** / **encode
 - `metrics`: compute metrics and update individual streams json metadata
 
 
-## 5.1 anchor bitstreams generation
+## 4.2 anchor bitstreams generation
 
 encode a specific anchor:
 ```
@@ -161,8 +163,9 @@ create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265
 ```
 
 
-## 5.2 metrics generation
+## 4.3 metrics generation
 
+### 4.3.1 Preliminaries 
 > After bitstreams generation, and **before running metrics generation**, make sure to run `convert.py`.
 
 *run decoding and compute metrics* for a specific anchor:
@@ -178,7 +181,7 @@ create.py metrics --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
 to process the entire scenario/codec, remove `-k S3-A36-265` from the above commands
 
 
-### 5.2.1 metrics softwares
+### 4.3.2 metrics software modules
 
 **PSNR / MS-SSIM**
 
@@ -205,13 +208,12 @@ docker run -it \
     python3 ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
 ```
 
-
 **Decoder/Encoder log metrics**
 
 Decoder / Encoder can implement parsing metrics from logs. Currently, only HM and SCM implement log parsing.
 
 
-## 5.3 encoder/decoder implementation
+## 4.4 encoder/decoder implementation
 
 To implement new encoders, take look at `encoders.py`. 
 You need to subclass the EncoderBase class and decorate your class (@register_encoder).
