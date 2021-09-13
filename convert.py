@@ -11,7 +11,6 @@ from download import AnchorTupleCtx
 # see: please refer to HDRConvert.cfg for the full range of options
 
 def __color_primaries(v:VideoSequence):
-    
     if v.colour_primaries == ColorPrimaries.BT_709:
         return 0
     if v.colour_primaries == ColorPrimaries.BT_2020:

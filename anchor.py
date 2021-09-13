@@ -1,5 +1,4 @@
-import json
-import csv
+import json, csv, math
 from pathlib import Path
 from typing import Dict, Generator, Tuple, Iterable
 
@@ -358,7 +357,9 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Di
                 refs[k] = None
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)
-            assert (vs.frame_count / vs.frame_rate) == float(row[RefSequenceList.DUR]), f'(frame_count / frame_rate) != "duration found in `scenario/reference-sequence.csv` file for `{k}`"'
+            dur = float(row[RefSequenceList.DUR])
+            if not math.isclose( vs.frame_count/vs.frame_rate, dur):
+                print(f'(frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
             refs[k] = vs
     return refs
 

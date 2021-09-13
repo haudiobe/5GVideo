@@ -9,7 +9,7 @@ from encoders import get_encoder
 from metrics import compute_metrics, anchor_metrics_to_csv
 from anchor import AnchorTuple, ReconstructionMeta, reference_sequences_dict, iter_anchors, iter_variants
 
-def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False):
+def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False, vmaf=True):
     for a in anchors:
         a.dry_run = dry_run
         enc = get_encoder(a.encoder_id)
@@ -17,7 +17,7 @@ def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrit
         for vf, vd in iter_variants(a):
             assert vd != None, 'bitstream metadata not found'
             if (vd.metrics != None) and (not overwrite):
-                print('# skipping', vf, ' - use -y to overwrite')
+                print('[skipping, use -y to overwrite] found existing metrics in ', vf)
                 continue
             if decode:
                 rec = enc.decode_variant(a, vd, md5=True)
@@ -25,7 +25,7 @@ def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrit
             else:
                 log_file = getattr(vd.reconstruction, 'log-file', None)
                 rec = ReconstructionMeta(a.encoder_id, a.working_dir / f'{vd.variant_id}.yuv', Path(log_file) if log_file else None, md5=False)
-            m = compute_metrics(a, vd, vmaf=True)
+            m = compute_metrics(a, vd, vmaf=vmaf)
             vd.metrics = m.to_dict()
             vd.save_as(vf)
         anchor_metrics_to_csv(a)
@@ -87,9 +87,9 @@ def main():
     anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=anchor_keys)
 
     if cmd == "decoder":
-        compute_anchor_metrics(*anchors, overwrite=y, dry_run=dry_run)
+        compute_anchor_metrics(*anchors, decode=True, overwrite=y, dry_run=dry_run, vmaf=True)
     elif cmd == "metrics":
-        compute_anchor_metrics(*anchors, decode=False, overwrite=y, dry_run=dry_run)
+        compute_anchor_metrics(*anchors, decode=False, overwrite=y, dry_run=dry_run, vmaf=True)
     elif cmd == "encoder":
         encode_anchor_bitstreams(*anchors, overwrite=y, dry_run=dry_run)
 

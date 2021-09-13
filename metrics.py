@@ -179,28 +179,9 @@ def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
 
     return opts
 
-def get_sequences_matching_coded_bitdepth(a:AnchorTuple):
-    # check if a pre-conversion step is needed, 
-    # we want to compute SDR metrics in the coded internal bit depth
-    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if (not preprocessed):
-        vs = VideoSequence(reconstructed, **ref.properties)
-        dist = VideoSequence(reconstructed, **ref.properties)
-        dist.bit_depth = coded_bit_depth
-    elif (coded_bit_depth == ref.bit_depth):
-        vs = VideoSequence(reconstructed, **ref.properties)
-        dist = VideoSequence(reconstructed, **ref.properties)
-    # check if a pre-conversion step is needed, 
-    # we want to compute SDR metrics in the coded internal bit depth
-    elif preprocessed and (coded_bit_depth == 10):
-        vs = as_10bit_sequence(ref)
-        assert vs.path.exists(), f'reference sequence needs pre-processing - Not found: {vs.path}'
-        dist = VideoSequence(reconstructed, **ref.properties)
-        dist.bit_depth = coded_bit_depth
 
 
-
-def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False) -> dict:
+def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:Path=None) -> dict:
 
     # PQ content metrics to be parsed from VTM encoder log
     assert ref.transfer_characteristics != TransferFunction.BT2020_PQ, f'unsupported transfer function, {TransferFunction.BT2020_PQ}'
@@ -208,7 +189,8 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False) -> di
     
     input0 = hdrtools_input(ref, ref=True)
     input1 = hdrtools_input(dist, ref=False)
-    run = [
+    run = ['-f', str(cfg)] if cfg else []
+    run += [
         '-p', f'EnablehexMetric=1', # the parser collects hex values only
         '-p', f'EnableJVETPSNR=1',
         '-p', f'EnableShowMSE=1',
@@ -250,7 +232,7 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False) -> di
 
 ################################################################################
 
-def bitstream_size(bitstream:Path, encoder_id:str=None dropSeiPrefix=False, dropSeiSuffix=False) -> int:
+def bitstream_size(bitstream:Path, encoder_id:str=None, dropSeiPrefix=False, dropSeiSuffix=False) -> int:
     tmp = None
     if dropSeiPrefix or dropSeiSuffix:
         tool = os.getenv('SEI_REMOVAL_APP')
@@ -267,6 +249,7 @@ def bitstream_size(bitstream:Path, encoder_id:str=None dropSeiPrefix=False, drop
 ################################################################################
 
 def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6.1", dry_run=False):
+    # VMAF may not support skipping frames at the beginning of input sequences
     output = dist.path.with_suffix('.vmaf.json')
     log = dist.path.with_suffix('.vmaf.log')
     vmaf_exec = os.getenv('VMAF_EXEC', 'vmaf')
@@ -310,20 +293,21 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
         dist = VideoSequence.from_sidecar_metadata(dist_dir / f'{vd.variant_id}.yuv.json')
         assert ref.bit_depth == dist.bit_depth
-
-    metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run)
     
-    if vmaf and (a.start_frame-1 == 0):
-        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
-        metrics[Metric.VMAF.value] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
-    else: # TBD. VMAF itself does not support adressing a segment, using vmaf through libav/ffmpeg would easily solve this issue
+    metrics_cfg = os.getenv('HDRMETRICS_CFG')
+    metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
+    
+    if os.getenv('DISABLE_VMAF'):
         metrics[Metric.VMAF.value] = 0
 
+    else:
+        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
+        metrics[Metric.VMAF.value] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
+    
     if a.dry_run:
         return VariantMetricSet(vd.variant_id, None)
 
     bitstream = a.working_dir / vd.bitstream['URI']
-    # this should rather be an encoder classmethod
     if a.encoder_id.startswith('HM') or a.encoder_id.startswith('SCM'):
         s = bitstream_size(bitstream)
         metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
@@ -352,8 +336,8 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         dec_log = a.working_dir / vd.reconstruction['log-file']
         if dec_log.exists():
             decoder_metrics = enc.decoder_log_metrics(dec_log)
-            if Metric.DECODETIME.value in encoder_metrics:
-                metrics[Metric.DECODETIME.value] = float(encoder_metrics[Metric.DECODETIME.value])
+            if Metric.DECODETIME.value in decoder_metrics:
+                metrics[Metric.DECODETIME.value] = float(decoder_metrics[Metric.DECODETIME.value])
         else:
             print(f'#\tdecoder log not found: {dec_log}')
             metrics[Metric.DECODETIME.value] = 0

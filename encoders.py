@@ -244,8 +244,9 @@ class HM(EncoderBase):
                                  GBRtoRGB
         --ClipOutputVideoToRec709Range /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
         """
+        print(f'{a.reference.bit_depth}bit::{a.reference.path}')
         return [
-            *_to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": f'{a.reference.bit_depth}' }),
+            *_to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": "0" }),
                 "--ClipOutputVideoToRec709Range"
         ]
     

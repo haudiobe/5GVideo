@@ -40,14 +40,14 @@ RUN git clone https://gitlab.com/standards/HDRTools.git && \
   cd ./HDRTools && git checkout ${HDRTOOLS_VERSION}
 
 # docker build --build-arg HDRTOOLS_JM_PSNR=1 to use this option
-COPY docker/HDRTOOLS_disable_jm_psnr.patch ./HDRTools/HDRTOOLS_disable_jm_psnr.patch
-RUN [ ! -z "${HDRTOOLS_JM_PSNR}" ] && cd ./HDRTools && git apply ./HDRTOOLS_disable_jm_psnr.patch || echo "build HDRTOOLS w/ -D JM_PSNR"
+# COPY docker/HDRTOOLS_disable_jm_psnr.patch ./HDRTools/HDRTOOLS_disable_jm_psnr.patch
+# RUN [ ! -z "${HDRTOOLS_JM_PSNR}" ] && cd ./HDRTools && git apply ./HDRTOOLS_disable_jm_psnr.patch || echo "build HDRTOOLS w/ -D JM_PSNR"
 
 RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
   make -j 4
 
-ENV HDRMETRICS_TOOL=/home/home/deps/HDRTools/build/bin/HDRMetrics
+ENV HDRMETRICS_TOOL=/home/deps/HDRTools/build/bin/HDRMetrics
 ENV HDRCONVERT_TOOL=/home/deps/HDRTools/build/bin/HDRConvert
 
 ## HM ###
@@ -102,4 +102,5 @@ RUN pip install -r ./requirements.txt
 COPY *.py ./
 COPY report-template.json ./
 
-# ENTRYPOINT ["/usr/bin/python3"]
+COPY ./docker/cfg/HDRMetrics_PSNR_MSSSIM.cfg /data/Cfg/HDRMetrics_PSNR_MSSSIM.cfg
+ENV HDRMETRICS_CFG=/data/Cfg/HDRMetrics_PSNR_MSSSIM.cfg
