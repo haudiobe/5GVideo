@@ -61,6 +61,7 @@ class VariantMetricSet:
 
         for m in self.required:
             assert m.value in metrics, f'missing required metric {m}'
+
         for m in self.encoder_stats:
             if not (m.value in metrics):
                 print('missing encoder stat: ', m)
@@ -225,7 +226,7 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
             Metric.PSNR_Y.value: metrics["PSNR-Y"],
             Metric.PSNR_U.value: metrics["PSNR-U"],
             Metric.PSNR_V.value: metrics["PSNR-V"],
-            Metric.MSSSIM.value: metrics["MSSSIM-Y"]
+            Metric.MSSSIM.value: metrics["JMSSSIM-Y"]
         }
     else:
         return metrics
@@ -252,7 +253,8 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
     # VMAF may not support skipping frames at the beginning of input sequences
     output = dist.path.with_suffix('.vmaf.json')
     log = dist.path.with_suffix('.vmaf.log')
-    vmaf_exec = os.getenv('VMAF_EXEC', 'vmaf')
+    vmaf_exec = os.getenv('VMAF_EXEC', 'vmafossexec')
+    """
     cmd = [
         vmaf_exec,
         "-r", f'{ref.path}', 
@@ -264,6 +266,40 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
         "--json", "-o", str(output),
         "-m", model
     ]
+    """
+    print(f'[{ref.bit_depth}\tbits]::', ref.path.name)
+    print(f'[{dist.bit_depth}\tbits]::', dist.path.name)
+    try:
+        assert not dist.interlaced and not ref.interlaced
+        assert not dist.interleaved and not ref.interleaved
+        # dist.chroma_format
+        # dist.chroma_subsampling
+    except AssertionError:
+        print('Invalid format for VMAF. Must be one of yuv420p, yuv420p10le, yuv420p12le, yuv420p16le')
+
+    pixfmt = None 
+    if ref.bit_depth == 8:
+        pixfmt = 'yuv420p'
+    elif ref.bit_depth == 10:
+        pixfmt = 'yuv420p10le'
+    elif ref.bit_depth == 12:
+        pixfmt = 'yuv420p12le'
+    elif ref.bit_depth == 16:
+        pixfmt = 'yuv420p16le'
+
+    cmd = [
+        vmaf_exec,
+        str(pixfmt),
+        str(ref.width),
+        str(ref.height),
+        str(ref.path),
+        str(dist.path),
+        str(model),
+        '--log', str(output),
+        '--log-fmt', 'json',
+        '--psnr', '--ssim', '--ms-ssim'
+    ]
+    
     run_process(log, *cmd, dry_run=dry_run)
     if output.exists():
         with open(output, "rb") as fp:
@@ -293,15 +329,22 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
         dist = VideoSequence.from_sidecar_metadata(dist_dir / f'{vd.variant_id}.yuv.json')
         assert ref.bit_depth == dist.bit_depth
-    
-    metrics_cfg = os.getenv('HDRMETRICS_CFG')
-    metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
-    
+
+    if not os.getenv('DISABLE_HDRMETRICS'):
+        metrics_cfg = os.getenv('HDRMETRICS_CFG')
+        metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
+    else:
+        metrics = {
+            Metric.PSNR_Y.value: None,
+            Metric.PSNR_U.value: None,
+            Metric.PSNR_V.value: None,
+            Metric.MSSSIM.value: None
+        }
+        
     if os.getenv('DISABLE_VMAF'):
         metrics[Metric.VMAF.value] = 0
-
     else:
-        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1:enable_transform")
+        mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
         metrics[Metric.VMAF.value] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
     
     if a.dry_run:
