@@ -80,8 +80,9 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
   cd ./vmaf && git checkout ${VMAF_VERSION} && \
   make
 ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
-ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json
-ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmaf
+ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform
+# ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmaf
+ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmafossexec
 
 ## HM SCC extension ###
 RUN cp -r /home/deps/HM /home/deps/SCM

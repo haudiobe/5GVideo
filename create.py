@@ -25,8 +25,7 @@ def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrit
             else:
                 log_file = getattr(vd.reconstruction, 'log-file', None)
                 rec = ReconstructionMeta(a.encoder_id, a.working_dir / f'{vd.variant_id}.yuv', Path(log_file) if log_file else None, md5=False)
-            m = compute_metrics(a, vd, vmaf=vmaf)
-            vd.metrics = m.to_dict()
+            vd.metrics = compute_metrics(a, vd, vmaf=vmaf)
             vd.save_as(vf)
         anchor_metrics_to_csv(a)
 
