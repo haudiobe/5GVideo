@@ -169,28 +169,53 @@ class VideoSequence(VideoInfo):
 
     @staticmethod
     def from_sidecar_metadata(metadata:Path) -> 'VideoSequence':
-        # https://github.com/haudiobe/5G-Video-Content/blob/main/3gpp-raw-schema.json
+        """minimal metadata json:
+        {
+            "Sequence":{
+                "URI": "path/to/sequence.yuv",
+                "md5": "74f80ff8c2237157060ee05f8358d88d" 
+            },
+            "Properties": {
+                "width": 4096,
+                "height": 2160,
+                "format": "yuv",
+                "packing": "planar",
+                "scan": "progressive",
+                "subsampling": "420",
+                "bitDepth": 8,
+                "frameRate": 60.0,
+                "colourPrimaries": "1",
+                "transferCharacteristics": "1",
+                "matrixCoefficients": "1",
+                "sampleAspectRatio": "1",
+                "duration": 10.0,
+                "frameCount": 600,
+                "startFrame": 1,
+                "videoFullRangeFlag": "0",
+                "chromaSampleLocType": "0"
+            }
+        }
+        """
         data = None
+        
         try:
             with open(metadata, 'r') as reader:
                 data = json.load(reader)
         except FileNotFoundError:
             raise Exception(f'missing sidecar metadata for {metadata}')
+        
         assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
         assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
-        # assert 'Key' in data['Sequence'], f"{metadata}\n'Key' key missing from 'Sequence' metadata"
-        # assert 'Name' in data['Sequence'], f"{metadata}\n'Name' key missing from 'Sequence' metadata"
-        # assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
-        # # assert 'size' in data['Sequence'], f"{metadata}\n'size' key missing from 'Sequence' metadata"
-        # assert 'Background' in data['Sequence'], f"{metadata}\n'Background' key missing from 'Sequence' metadata"
-        # assert 'Scenario' in data['Sequence'], f"{metadata}\n'Scenario' key missing from 'Sequence' metadata"
-        # assert 'thumbnail' in data['Sequence'], f"{metadata}\n'thumbnail' key missing from 'Sequence' metadata"
-        # assert 'preview' in data['Sequence'], f"{metadata}\n'preview' key missing from 'Sequence' metadata"
-        # assert 'TR26.955' in data['Sequence'], f"{metadata}\n'TR26.955' key missing from 'Sequence' metadata"
-        # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
-        raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
-        assert ('Properties' in data) and type(data['Properties']) == dict, 'invalid sequence description'
+        assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
+        
+        data['Sequence']['Key'] = None # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.
+        raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI']) # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
+        contact = None
+        cc = None
+        
+        assert 'Properties' in data, f"{metadata}\n'Properties' missing from metadata"
         props = data['Properties']
         contact = data.get('Contact', None )
         cc = data.get('copyRight', None )
+        
         return VideoSequence(raw_sequence, copyright=cc, contact=contact, sequence=data['Sequence'], **props)
