@@ -6,6 +6,7 @@
 3. video conversion step (8 to 10bit, EXR)
 4. creating test data
 5. running verifications
+6. comparing test data to anchors
 
 ```
 **.py --scenario_dir /data/Bitstreams/{scenario}/{test} -k {anchor} [--dry-run]
@@ -101,7 +102,7 @@ _____
 
 # 2. Downloading content from the reference server
 
-The `download.py` script downloads content from the public [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/).
+The `download.py` script downloads content from the public [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/) to the current working directory.
 
 When content is already available in the target directory, it is skipped if the local file size matches the original file.
 
@@ -278,8 +279,35 @@ sample `./report-template.json` :
     "input": ""
 }
 ```
+_____
+
+
+# 6. comparing test data to anchors
+
+```
+python3 compare.py ANCHOR TEST
+```
+
+`ANCHOR` and `TEST` can be an anchor directory, or a codec directory with an encoder configuration id, but must both be of the same type. For instance:
+
+to compare *S3-A01-VTM* as test data, with *S3-A01-265* as anchor :
+```
+compare.py /data/Bitstreams/Sequence3-Screen/265/S3-A01-265 /data/Bitstreams/Sequence3-Screen/265/S3-A01-VTM
+```
+prints the result to stdout
+
+
+to compare encoder configuration *s3-vtm-01.cfg*`* as test, and configuration *s3-hm-01.cfg* as anchor:
+```
+compare.py /data/Bitstreams/Sequence3-Screen/265@S3-HM-01 /data/Bitstreams/Sequence3-Screen/VTM@S3-VTM-01
+```
+
+the result is found in `/data/Bitstreams/Sequence3-Screen/VTM/Metrics/s3-hm-01.s3-vtm-01.csv`
+
+
 
 _____
+
 
 # FAQ
 

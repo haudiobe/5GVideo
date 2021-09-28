@@ -451,6 +451,14 @@ def enforce_stictly_increasing(arr):
         raise Exception(f'expected strictly increasing samples, got: { err }')
         
 def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0) -> float:
+
+    """
+    adapted from https://github.com/Anserw/Bjontegaard_metric
+    which computes bd-rate according to:
+        [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33) 
+        [2] S. Pateux, J. Jung, An excel add-in for computing Bjontegaard metric and its evolution
+    """
+
     lR1 = np.log(R1)
     lR2 = np.log(R2)
 

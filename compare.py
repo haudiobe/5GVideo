@@ -38,11 +38,6 @@ def compare_anchors_metrics( anchor:List[VariantData], test:List[VariantData], r
         raise ValueError(f'A:{anchor_metrics} | T:{test_metrics} | Err: {e}')
 
 def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, csv_headers=True):
-    # eg. 5GVideo/Bitstreams/Scenario-5-Gaming/265/Metrics/hm-01.csv
-    # sequence,QPISlice,kbps,Y psnr,U psnr,V psnr,Enc T [s],Dec T [s],VMAF,MS SSIM,Enc T [h]
-
-    # eg. 
-    # parameter,bitrate,y_psnr,u_psnr,v_psnr,ms_ssim,vmaf,bitrate_log,encode_time,decode_time
     with open(path, 'a' if csv_append else 'w', newline='') as csvfile:
         fieldnames = [
             "ID",
