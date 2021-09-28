@@ -6,7 +6,7 @@ from numpy.core.fromnumeric import var
 
 from anchor import VariantData, iter_variants, AnchorTuple, VariantMetricSet2
 from download import AnchorTupleCtx
-from metrics import SDR_METRICS, BD_RATE, compute_avg_psnr, Metric
+from metrics import SDR_METRICS, BD_RATE, Metric, compute_avg_psnr, compute_log_msssim
 import sys, csv
 
 # plot rd for 1 anchor
@@ -21,18 +21,21 @@ def rd_plot(*anchors):
 def rd_metrics(variants:List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
         return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
 
-def ensure_avg_psnr(data:List[VariantData]):
+def normalize_metrics(data:List[VariantData]):
     for vd in data:
         compute_avg_psnr(vd)
+        # compute_log_msssim(vd)
 
 def compare_anchors_metrics( anchor:List[VariantData], test:List[VariantData], rate="BitrateLog", dist="PSNR", piecewise=1) -> float:
     if dist.lower() == str(Metric.PSNR.key):
-        ensure_avg_psnr(anchor)
-        ensure_avg_psnr(test)
+        normalize_metrics(anchor)
+        normalize_metrics(test)
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
-    return BD_RATE(*anchor_metrics, *test_metrics, piecewise=piecewise)
-
+    try:
+        return BD_RATE(*anchor_metrics, *test_metrics, piecewise=piecewise)
+    except BaseException as e:
+        raise ValueError(f'A:{anchor_metrics} | T:{test_metrics} | Err: {e}')
 
 def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, csv_headers=True):
     # eg. 5GVideo/Bitstreams/Scenario-5-Gaming/265/Metrics/hm-01.csv
@@ -79,8 +82,8 @@ def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str]
         except BaseException as e:
             if strict:
                 raise
-            vms[key] = f'Err.'
-            # vms[key] = f'[err]: {e}'
+            vms[key] = str(e)
+
     return aref.reference.sequence['Key'], vms
 
 #######################################################
@@ -117,16 +120,15 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
             except BaseException as e:
                 if strict:
                     raise
-                # arates[key] = f'[err]: {e}'
-                arates[key] = '[err]'
+                # err = str(e)[:75] if len(str(e)) > 75 else str(e)
+                # arates[key] = f'Err: {err}..'
+                arates[key] = str(e)
 
         bd_rates.append((aref, atest, arates))
 
     return [(r.reference.sequence['Key'], bdr) for (r, _, bdr) in bd_rates]
 
 def csv_dump(data, fp):
-    # ignore = ['bitrate', 'bitratelog', 'encodetime', 'decodetime']
-    # fieldnames = [ k for k in data[0].keys() if k not in ignore ]
     fieldnames = [ 
         'reference',
         Metric.PSNR_Y.key,
@@ -168,7 +170,7 @@ def main():
         testdir, testkey = _parse_filter(test)
         outp = testdir / 'Metrics' / f'{refkey}.{testkey}.csv'.lower()
         data = []
-        for (seqid, r) in compare_encoder_configs(ref, test, metrics):
+        for (seqid, r) in compare_encoder_configs(ref, test, metrics, strict=False):
             r['reference'] = seqid
             data.append(r)
         csv_dump(data, outp)

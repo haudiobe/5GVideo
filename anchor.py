@@ -378,6 +378,16 @@ class AnchorTuple:
         else:
             return p
 
+    def locate_bitstream(self, vd:VariantData, md5_check=True) -> Path:
+        assert vd.bitstream != None, 'bitstream definition not found'
+        assert self.working_dir.is_dir(), 'invalid anchor directory'
+        fp = self.working_dir / Path(vd.bitstream['URI'])
+        assert fp.exists(), f'bitstream file does not exist: {fp}'
+        if md5_check:
+            assert vd.bitstream['md5'] == md5_checksum(fp), f'md5 missmatch: {fp}'
+        return fp
+
+
 #########################################################################################################
 
 def ref_location(row) -> str:
@@ -391,9 +401,9 @@ def iter_ref_locations(reference_list:Path) -> Iterable[str]:
             refs.append( ref_location(row) )
     return refs
 
-def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
+def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.'), raises=False) -> Dict[str, VideoSequence]:
     """produces a dict mapping a reference sequence key 
-        to a VideoSequence if the sequence exists - None if it doesn't exist. 
+        to a VideoSequence if the sequence exists - None if it doesn't exist, or raises is True. 
     """
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
@@ -401,11 +411,13 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Di
             meta = root_dir / ref_location(row)
             k = row[RefSequenceList.KEY]
             if not meta.exists():
+                if raises:
+                    raise FileNotFoundError(str(meta.resolve()))
                 refs[k] = None
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)
-            kmustmatch = vs.sequence['Key']
-            assert k == kmustmatch, f'reference sequence conflict, value found in CSV "{reference_list.name}" doesn\'t match value in metadata "{meta.name}": {k} != {kmustmatch}'
+            if vs.sequence:
+                vs.sequence['Key'] = k
             dur = float(row[RefSequenceList.DUR])
             if not math.isclose( vs.frame_count/vs.frame_rate, dur):
                 print(f'(frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')

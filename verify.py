@@ -15,7 +15,7 @@ from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
 from encoders import get_encoder, parse_encoding_bitdepth
-from metrics import Metric, compute_metrics, anchor_metrics_to_csv
+from metrics import SDR_METRICS, Metric, compute_metrics, anchor_metrics_to_csv
 from convert import as_10bit_sequence
 
 DEBUG_FIRST_VARIANT_ONLY=False 
@@ -141,8 +141,8 @@ def decoder_verification_preflight(a:AnchorTuple):
     err = None
     for vf, vd in iter_variants(a):
         try:
-            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
-            vd.has_metric_set(  )
+            _ = a.locate_bitstream(vd, md5_check=True)
+            vd.has_metric_set( SDR_METRICS )
         except BaseException as e:
             if err == None:
                 err = []
@@ -191,7 +191,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
             log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
             success = False
         
-    skipped = [Metric.DECODETIME.value, Metric.ENCODETIME.value]
+    skipped = [Metric.DECODETIME.key, Metric.ENCODETIME.key]
     for key, expected in vd.metrics.items():
         if key in skipped:
             continue
@@ -236,7 +236,7 @@ def bitstream_verification_preflight(a:AnchorTuple) -> List[Tuple[Path, Any, str
     err = None
     for vf, vd in iter_variants(a):
         try:
-            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
+            _ = a.locate_bitstream(vd, md5_check=True)
         except KeyboardInterrupt:
             raise
         except BaseException as e:

@@ -5,6 +5,7 @@ import io
 import os
 import json
 import csv
+import math
 import functools
 import copy
 import shlex
@@ -219,33 +220,40 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
     run_process(log, *cmd, dry_run=dry_run)
     if dry_run:
         return {
-            Metric.PSNR_Y.value: -1,
-            Metric.PSNR_U.value: -1,
-            Metric.PSNR_V.value: -1,
-            Metric.MSSSIM.value: -1
+            Metric.PSNR_Y.key: -1,
+            Metric.PSNR_U.key: -1,
+            Metric.PSNR_V.key: -1,
+            Metric.PSNR.key: -1,
+            Metric.MSSSIM.key: -1
         }
 
     data = parse_metrics(log)
     metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
-    
+
     if ref.chroma_format == ChromaFormat.YUV:
+        (y,u,v) = (metrics["PSNR-Y"], metrics["PSNR-U"], metrics["PSNR-V"])
+        psnr = ((6*y)+u+v)/8
+        log_msssim = (-10.0 * math.log10(1 - metrics["JMSSSIM-Y"]))
         return {
-            Metric.PSNR_Y.value: metrics["PSNR-Y"],
-            Metric.PSNR_U.value: metrics["PSNR-U"],
-            Metric.PSNR_V.value: metrics["PSNR-V"],
-            Metric.MSSSIM.value: metrics["JMSSSIM-Y"]
+            Metric.PSNR_Y.key: y,
+            Metric.PSNR_U.key: u,
+            Metric.PSNR_V.key: v,
+            Metric.PSNR.key: psnr,
+            Metric.MSSSIM.key: log_msssim
         }
     else:
         return metrics
 
 ################################################################################
 
-def bitstream_size(bitstream:Path, encoder_id:str=None, dropSeiPrefix=False, dropSeiSuffix=False) -> int:
+def bitstream_size(bitstream:Path, drop_sei=False) -> int:
     tmp = None
-    if dropSeiPrefix or dropSeiSuffix:
+    if drop_sei:
+        # expecting SEIRemovalAppStatic built from HM16.23
         tool = os.getenv('SEI_REMOVAL_APP')
+        assert tool, 'missing env variable: SEI_REMOVAL_APP'
         tmp = bitstream.with_suffix('.tmp')
-        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), '-p', str(1), '-s', str(0) ]
+        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), f'--DiscardPrefixSEI=1', f'--DiscardSuffixSEI=1' ]
         log = bitstream.with_suffix('.seiremoval.log')
         run_process(log, *cmd, dry_run=False)
     s = int(os.path.getsize(tmp if tmp else bitstream))
@@ -343,27 +351,25 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
     else:
         metrics = VariantMetricSet2()
-        metrics[Metric.PSNR_Y.value] = None
-        metrics[Metric.PSNR_U.value] = None
-        metrics[Metric.PSNR_V.value] = None
-        metrics[Metric.MSSSIM.value] = None
+        metrics[Metric.PSNR_Y.key] = None
+        metrics[Metric.PSNR_U.key] = None
+        metrics[Metric.PSNR_V.key] = None
+        metrics[Metric.PSNR.key]   = None
+        metrics[Metric.MSSSIM.key] = None
         
     if os.getenv('DISABLE_VMAF'):
-        metrics[Metric.VMAF.value] = 0
+        metrics[Metric.VMAF.key] = 0
     else:
         mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
-        metrics[Metric.VMAF.value] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
+        metrics[Metric.VMAF.key] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
     
     if a.dry_run:
         return vd.variant_id, VariantMetricSet2()
 
     bitstream = a.working_dir / vd.bitstream['URI']
-    if a.encoder_id.startswith('HM') or a.encoder_id.startswith('SCM'):
-        s = bitstream_size(bitstream)
-        metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
-    else:
-        s = bitstream_size(bitstream)
-        metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
+
+    s = bitstream_size(bitstream, drop_sei=False)
+    metrics[Metric.BITRATE.key] = int(s * 8 / a.duration) * 1e-3
 
     enc = get_encoder(vd.generation['encoder'])
 
@@ -372,25 +378,25 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         enc_log = a.working_dir / vd.generation['log-file']
         if enc_log.exists():
             encoder_metrics = enc.encoder_log_metrics(enc_log)
-            if Metric.BITRATELOG.value in encoder_metrics:
-                metrics[Metric.BITRATELOG.value] = float(encoder_metrics[Metric.BITRATELOG.value])
-            if Metric.ENCODETIME.value in encoder_metrics:
-                metrics[Metric.ENCODETIME.value] = float(encoder_metrics[Metric.ENCODETIME.value])
+            if Metric.BITRATELOG.key in encoder_metrics:
+                metrics[Metric.BITRATELOG.key] = float(encoder_metrics[Metric.BITRATELOG.key])
+            if Metric.ENCODETIME.key in encoder_metrics:
+                metrics[Metric.ENCODETIME.key] = float(encoder_metrics[Metric.ENCODETIME.key])
         else:
             print(f'#\tencoder log not found: {enc_log}')
-            metrics[Metric.BITRATELOG.value] = 0
-            metrics[Metric.ENCODETIME.value] = 0
+            metrics[Metric.BITRATELOG.key] = 0
+            metrics[Metric.ENCODETIME.key] = 0
     
     # parse additional metrics from DECODER log 
     if vd.reconstruction and vd.reconstruction.get('log-file', None):
         dec_log = a.working_dir / vd.reconstruction['log-file']
         if dec_log.exists():
             decoder_metrics = enc.decoder_log_metrics(dec_log)
-            if Metric.DECODETIME.value in decoder_metrics:
-                metrics[Metric.DECODETIME.value] = float(decoder_metrics[Metric.DECODETIME.value])
+            if Metric.DECODETIME.key in decoder_metrics:
+                metrics[Metric.DECODETIME.key] = float(decoder_metrics[Metric.DECODETIME.key])
         else:
             print(f'#\tdecoder log not found: {dec_log}')
-            metrics[Metric.DECODETIME.value] = 0
+            metrics[Metric.DECODETIME.key] = 0
 
     return metrics
 
@@ -400,7 +406,7 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
     for variant_path, variant_data in iter_variants(a):
         assert variant_path.exists(), f'{variant_path} not found'
         assert variant_data.metrics, f'metrics not defined in: {variant_path}'
-        if not len(fieldnames):
+        if not fieldnames:
             fieldnames = ["parameter", *variant_data.metrics.keys()]
 
     if dst == None:
@@ -423,9 +429,19 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
 ################################################################################
 
 def compute_avg_psnr(vd:VariantData):
-    if 'psnr' not in vd.metrics:
-        [Y, U, V] = [vd.metrics[k.key] for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
-    vd.metrics[Metric.PSNR.key] = ((6*Y)+U+V)/8
+    try:
+        if 'psnr' not in vd.metrics:
+            [Y, U, V] = [vd.metrics[k.key] for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
+        vd.metrics[Metric.PSNR.key] = ((6*Y)+U+V)/8
+    except BaseException as e:
+        vd.metrics[Metric.PSNR.key] = str(e)
+
+def compute_log_msssim(vd:VariantData):
+    try:
+        inv = 1 - vd.metrics[Metric.MSSSIM.key]
+        vd.metrics[Metric.MSSSIM.key] = -math.inf if inv == 0 else -10.0 * math.log10(inv)
+    except BaseException as e:
+        vd.metrics[Metric.MSSSIM.key] = str(e)
 
 ################################################################################
 
