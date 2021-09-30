@@ -14,9 +14,9 @@ import copy
 from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
-from encoders import get_encoder
-from metrics import Metric, VariantMetricSet, compute_metrics, anchor_metrics_to_csv
-from convert import can_compute_metrics
+from encoders import get_encoder, parse_encoding_bitdepth
+from metrics import SDR_METRICS, Metric, compute_metrics, anchor_metrics_to_csv
+from convert import as_10bit_sequence
 
 DEBUG_FIRST_VARIANT_ONLY=False 
 DEBUG_SKIP_VMAF=False
@@ -129,6 +129,8 @@ def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVe
 
 #########################################################################################################
 
+
+
 def decoder_verification_preflight(a:AnchorTuple):
     """
     verifies that:
@@ -139,8 +141,8 @@ def decoder_verification_preflight(a:AnchorTuple):
     err = None
     for vf, vd in iter_variants(a):
         try:
-            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
-            vd.has_metric_set( *VariantMetricSet.get_keys(a) )
+            _ = a.locate_bitstream(vd, md5_check=True)
+            vd.has_metric_set( SDR_METRICS )
         except BaseException as e:
             if err == None:
                 err = []
@@ -155,7 +157,9 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     3. compare with values defined in VariantData
     return a diff in case of missmatch
     """
-    assert can_compute_metrics(a, vd), f'conversion'
+    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+    if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
+        assert as_10bit_sequence(a.reference).path.exists()
     assert vd.metrics != None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
 
     log = [f'= {vd.variant_id} | decoder verification =====\n']
@@ -175,7 +179,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
 
     verify_reconstruction_md5 = vd.reconstruction['md5'] != 'unknown'
     r = dec.decode_variant(a, vd, tmp, md5=verify_reconstruction_md5)
-    metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF), dist_dir=tmp).to_dict()
+    _, metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF), dist_dir=tmp)
 
     if a.dry_run:
         return False, "/!\\ dry run"
@@ -187,15 +191,14 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
             log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
             success = False
         
-    skipped = [Metric.BITRATE.value, Metric.BITRATELOG.value, Metric.DECODETIME.value, Metric.ENCODETIME.value]
-    for m in VariantMetricSet.get_keys(a):
-        if m in skipped:
+    skipped = [Metric.DECODETIME.key, Metric.ENCODETIME.key]
+    for key, expected in vd.metrics.items():
+        if key in skipped:
             continue
-        found = metrics_new[m]
-        expected = vd.metrics[m]
+        found = metrics_new[key]
         if math.isclose(found, expected, rel_tol=1e-4):
             success = False
-        log.append(f'{m} - expected:{expected} - result: {found}\n')
+        log.append(f'{key} - expected:{expected} - result: {found}\n')
     
     if not debug:
         shutil.rmtree(tmp)
@@ -233,7 +236,7 @@ def bitstream_verification_preflight(a:AnchorTuple) -> List[Tuple[Path, Any, str
     err = None
     for vf, vd in iter_variants(a):
         try:
-            _ = vd.locate_bitstream(a.working_dir, md5_check=True)
+            _ = a.locate_bitstream(vd, md5_check=True)
         except KeyboardInterrupt:
             raise
         except BaseException as e:

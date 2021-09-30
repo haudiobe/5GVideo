@@ -177,13 +177,6 @@ def convert(yuv_in:VideoSequence, yuv_out:VideoSequence=None, quiet=False, dry_r
     logfile = yuv_out.path.with_suffix('.hdrconvert.log')
     run_process(logfile, HDRCONVERT_TOOL, *cmd, dry_run=dry_run)
 
-def can_compute_metrics(a:AnchorTuple, vd:VariantData) -> bool:
-    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
-        vc = as_10bit_sequence(a.reference)
-        return vc.path.exists()
-
-
 def main():
     ctx = AnchorTupleCtx.parse_args()
     assert ctx.scenario_dir.exists(), f'Not found: {ctx.scenario_dir}'

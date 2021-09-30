@@ -5,3 +5,4 @@
 !requirements.txt
 !docker/
 !report-template.json
+!/cfg/

@@ -5,81 +5,90 @@ import io
 import os
 import json
 import csv
+import math
+import functools
 import copy
 import shlex
 
+import numpy as np
+from numpy.polynomial import Polynomial, polynomial as P
+import scipy.interpolate
+
 from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
-from anchor import AnchorTuple, VariantData, ReconstructionMeta, iter_variants
+from anchor import AnchorTuple, VariantData, VariantMetricSet2, iter_variants
 from utils import run_process
 from encoders import get_encoder, parse_encoding_bitdepth, parse_variant_qp
 from convert import as_10bit_sequence, as_8bit_sequence
 from enum import Enum
 
-from typing import Dict
+from typing import List, Dict, Generator, Iterable
 
 class VideoFormatException(BaseException):
     pass
 
+class M:
+
+    def __init__(self, *args) -> None:
+        assert len(args) and (len(args) < 2)
+        self.key = str(args[0]).lower()
+        self.json_key = str(args[0])
+        self.csv_key = str(args[-1])
+
+    def __repr__(self):
+        return self.key
+
+    def __str__(self):
+        return self.key
+
 class Metric(Enum):
-    PSNR = "PSNR"
-    PSNR_Y = "YPSNR"
-    PSNR_U = "UPSNR"
-    PSNR_V = "VPSNR"
-    SSIM = "SSIM"
-    MSSSIM = "MS_SSIM"
-    VMAF = "VMAF"
-    BITRATE = "Bitrate"
-    BITRATELOG = "BitrateLog"
-    ENCODETIME = "EncodeTime"
-    DECODETIME = "DecodeTime"
 
+    @property
+    def csv_key(self):
+        return self.value.csv_key
 
-class VariantMetricSet:
+    @property
+    def json_key(self):
+        return self.value.json_key
 
-    required = [
+    @property
+    def key(self):
+        return self.value.key
+
+    PSNR        = M( "PSNR" )
+    PSNR_Y      = M( "YPSNR" )
+    PSNR_U      = M( "UPSNR" )
+    PSNR_V      = M( "VPSNR" )
+    MSSSIM      = M( "MS_SSIM" )
+    VMAF        = M( "VMAF" )
+    BITRATE     = M( "Bitrate" )
+    BITRATELOG  = M( "BitrateLog" )
+    ENCODETIME  = M( "EncodeTime" )
+    DECODETIME  = M( "DecodeTime" )
+
+    @classmethod
+    def json_dict(cls, v:VariantMetricSet2):
+        j = { m.key: m.json_key for m in cls }
+        return { j[k]: v for (k, v) in v.items() }
+
+    @classmethod
+    def csv_dict(cls, v:VariantMetricSet2):
+        c = { m.key: m.csv_key for m in cls }
+        return { c[k]: v for (k, v) in v.items() }
+
+SDR_METRICS = (
+        Metric.BITRATELOG,
+        Metric.BITRATE,
         Metric.PSNR_Y,
         Metric.PSNR_U,
         Metric.PSNR_V,
+        Metric.PSNR,
         Metric.MSSSIM, 
         Metric.VMAF,
-        Metric.BITRATE
-    ]
-
-    encoder_stats = [
-        Metric.BITRATELOG,
         Metric.ENCODETIME,
         Metric.DECODETIME
-    ]
-    
-    def __init__(self, variant_id:str, metrics:dict=None):
-        self.variant_id = variant_id
-        
-        if metrics == None: # None is for dry run
-            self.metrics = {}
-            return
+)
 
-        for m in self.required:
-            assert m.value in metrics, f'missing required metric {m}'
-
-        for m in self.encoder_stats:
-            if not (m.value in metrics):
-                print('missing encoder stat: ', m)
-
-        self.metrics = metrics
-
-    @classmethod
-    def get_keys(cls, anchor:AnchorTuple):
-        if anchor._reference.transfer_characteristics != TransferFunction.BT2020_PQ:
-            return [m.value for m in [ *cls.required, *cls.encoder_stats ]]
-        else:
-            raise NotImplementedError(f'unsupported transfer function, {TransferFunction.BT2020_PQ}')
-
-    def to_dict(self):
-        r = {}
-        for m in [ *self.required, *self.encoder_stats ]:
-            r[m.value] = self.metrics.get(m.value, None)
-        return r
 
 ################################################################################
 
@@ -181,7 +190,6 @@ def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
     return opts
 
 
-
 def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:Path=None) -> dict:
 
     # PQ content metrics to be parsed from VTM encoder log
@@ -212,33 +220,40 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
     run_process(log, *cmd, dry_run=dry_run)
     if dry_run:
         return {
-            Metric.PSNR_Y.value: -1,
-            Metric.PSNR_U.value: -1,
-            Metric.PSNR_V.value: -1,
-            Metric.MSSSIM.value: -1
+            Metric.PSNR_Y.key: -1,
+            Metric.PSNR_U.key: -1,
+            Metric.PSNR_V.key: -1,
+            Metric.PSNR.key: -1,
+            Metric.MSSSIM.key: -1
         }
 
     data = parse_metrics(log)
     metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
-    
+
     if ref.chroma_format == ChromaFormat.YUV:
+        (y,u,v) = (metrics["PSNR-Y"], metrics["PSNR-U"], metrics["PSNR-V"])
+        psnr = ((6*y)+u+v)/8
+        log_msssim = (-10.0 * math.log10(1 - metrics["JMSSSIM-Y"]))
         return {
-            Metric.PSNR_Y.value: metrics["PSNR-Y"],
-            Metric.PSNR_U.value: metrics["PSNR-U"],
-            Metric.PSNR_V.value: metrics["PSNR-V"],
-            Metric.MSSSIM.value: metrics["JMSSSIM-Y"]
+            Metric.PSNR_Y.key: y,
+            Metric.PSNR_U.key: u,
+            Metric.PSNR_V.key: v,
+            Metric.PSNR.key: psnr,
+            Metric.MSSSIM.key: log_msssim
         }
     else:
         return metrics
 
 ################################################################################
 
-def bitstream_size(bitstream:Path, encoder_id:str=None, dropSeiPrefix=False, dropSeiSuffix=False) -> int:
+def bitstream_size(bitstream:Path, drop_sei=False) -> int:
     tmp = None
-    if dropSeiPrefix or dropSeiSuffix:
+    if drop_sei:
+        # expecting SEIRemovalAppStatic built from HM16.23
         tool = os.getenv('SEI_REMOVAL_APP')
+        assert tool, 'missing env variable: SEI_REMOVAL_APP'
         tmp = bitstream.with_suffix('.tmp')
-        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), '-p', str(1), '-s', str(0) ]
+        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), f'--DiscardPrefixSEI=1', f'--DiscardSuffixSEI=1' ]
         log = bitstream.with_suffix('.seiremoval.log')
         run_process(log, *cmd, dry_run=False)
     s = int(os.path.getsize(tmp if tmp else bitstream))
@@ -312,7 +327,8 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
 
 ################################################################################
 
-def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir:Path=None) -> VariantMetricSet:
+def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir:Path=None) -> VariantMetricSet2:
+    
     # check if a pre-conversion step is needed, 
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
     if dist_dir == None:
@@ -334,29 +350,26 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         metrics_cfg = os.getenv('HDRMETRICS_CFG')
         metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
     else:
-        metrics = {
-            Metric.PSNR_Y.value: None,
-            Metric.PSNR_U.value: None,
-            Metric.PSNR_V.value: None,
-            Metric.MSSSIM.value: None
-        }
+        metrics = VariantMetricSet2()
+        metrics[Metric.PSNR_Y.key] = None
+        metrics[Metric.PSNR_U.key] = None
+        metrics[Metric.PSNR_V.key] = None
+        metrics[Metric.PSNR.key]   = None
+        metrics[Metric.MSSSIM.key] = None
         
     if os.getenv('DISABLE_VMAF'):
-        metrics[Metric.VMAF.value] = 0
+        metrics[Metric.VMAF.key] = 0
     else:
         mdl = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
-        metrics[Metric.VMAF.value] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
+        metrics[Metric.VMAF.key] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
     
     if a.dry_run:
-        return VariantMetricSet(vd.variant_id, None)
+        return vd.variant_id, VariantMetricSet2()
 
     bitstream = a.working_dir / vd.bitstream['URI']
-    if a.encoder_id.startswith('HM') or a.encoder_id.startswith('SCM'):
-        s = bitstream_size(bitstream)
-        metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
-    else:
-        s = bitstream_size(bitstream)
-        metrics[Metric.BITRATE.value] = int(s * 8 / a.duration) * 1e-3
+
+    s = bitstream_size(bitstream, drop_sei=False)
+    metrics[Metric.BITRATE.key] = int(s * 8 / a.duration) * 1e-3
 
     enc = get_encoder(vd.generation['encoder'])
 
@@ -365,33 +378,37 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         enc_log = a.working_dir / vd.generation['log-file']
         if enc_log.exists():
             encoder_metrics = enc.encoder_log_metrics(enc_log)
-            if Metric.BITRATELOG.value in encoder_metrics:
-                metrics[Metric.BITRATELOG.value] = float(encoder_metrics[Metric.BITRATELOG.value])
-            if Metric.ENCODETIME.value in encoder_metrics:
-                metrics[Metric.ENCODETIME.value] = float(encoder_metrics[Metric.ENCODETIME.value])
+            if Metric.BITRATELOG.key in encoder_metrics:
+                metrics[Metric.BITRATELOG.key] = float(encoder_metrics[Metric.BITRATELOG.key])
+            if Metric.ENCODETIME.key in encoder_metrics:
+                metrics[Metric.ENCODETIME.key] = float(encoder_metrics[Metric.ENCODETIME.key])
         else:
             print(f'#\tencoder log not found: {enc_log}')
-            metrics[Metric.BITRATELOG.value] = 0
-            metrics[Metric.ENCODETIME.value] = 0
+            metrics[Metric.BITRATELOG.key] = 0
+            metrics[Metric.ENCODETIME.key] = 0
     
     # parse additional metrics from DECODER log 
     if vd.reconstruction and vd.reconstruction.get('log-file', None):
         dec_log = a.working_dir / vd.reconstruction['log-file']
         if dec_log.exists():
             decoder_metrics = enc.decoder_log_metrics(dec_log)
-            if Metric.DECODETIME.value in decoder_metrics:
-                metrics[Metric.DECODETIME.value] = float(decoder_metrics[Metric.DECODETIME.value])
+            if Metric.DECODETIME.key in decoder_metrics:
+                metrics[Metric.DECODETIME.key] = float(decoder_metrics[Metric.DECODETIME.key])
         else:
             print(f'#\tdecoder log not found: {dec_log}')
-            metrics[Metric.DECODETIME.value] = 0
+            metrics[Metric.DECODETIME.key] = 0
 
-    return VariantMetricSet(vd.variant_id, metrics)
+    return metrics
 
 
 def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
-    fieldnames = ["parameter", *VariantMetricSet.get_keys(a)]
+    fieldnames = None
     for variant_path, variant_data in iter_variants(a):
         assert variant_path.exists(), f'{variant_path} not found'
+        assert variant_data.metrics, f'metrics not defined in: {variant_path}'
+        if not fieldnames:
+            fieldnames = ["parameter", *variant_data.metrics.keys()]
+
     if dst == None:
         dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
     if not dst.parent.exists():
@@ -411,40 +428,74 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
 
 ################################################################################
 
+def compute_avg_psnr(vd:VariantData):
+    try:
+        if 'psnr' not in vd.metrics:
+            [Y, U, V] = [vd.metrics[k.key] for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
+        vd.metrics[Metric.PSNR.key] = ((6*Y)+U+V)/8
+    except BaseException as e:
+        vd.metrics[Metric.PSNR.key] = str(e)
 
-def bd_q(RA, QA, RT, QT, piecewise=0):
-    import numpy as np
-    import scipy
-    
-    lRA = np.log(RA)
-    lRT = np.log(RT)
-    QA = np.array(QA)
-    QT = np.array(QT)
-    p1 = np.polyfit(lRA, QA, 3)
-    p2 = np.polyfit(lRT, QT, 3)
+def compute_log_msssim(vd:VariantData):
+    try:
+        inv = 1 - vd.metrics[Metric.MSSSIM.key]
+        vd.metrics[Metric.MSSSIM.key] = -math.inf if inv == 0 else -10.0 * math.log10(inv)
+    except BaseException as e:
+        vd.metrics[Metric.MSSSIM.key] = str(e)
+
+################################################################################
+
+def enforce_stictly_increasing(arr):
+    err = ','.join([f'{x} >= {y}' for _, (x, y) in enumerate(zip(arr, arr[1:])) if not x < y])
+    if len(err) > 0:
+        raise Exception(f'expected strictly increasing samples, got: { err }')
+        
+def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0) -> float:
+
+    """
+    adapted from https://github.com/Anserw/Bjontegaard_metric
+    which computes bd-rate according to:
+        [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33) 
+        [2] S. Pateux, J. Jung, An excel add-in for computing Bjontegaard metric and its evolution
+    """
+
+    lR1 = np.log(R1)
+    lR2 = np.log(R2)
+
+    # rate method
+    p1 = Polynomial.fit(PSNR1, lR1, 3)
+    p2 = Polynomial.fit(PSNR2, lR2, 3)
 
     # integration interval
-    min_int = max(min(lRA), min(lRT))
-    max_int = min(max(lRA), max(lRT))
-    
+    min_int = max(min(PSNR1), min(PSNR2))
+    max_int = min(max(PSNR1), max(PSNR2))
+
     # find integral
     if piecewise == 0:
-        p_int1 = np.polyint(p1)
-        p_int2 = np.polyint(p2)
-        int1 = np.polyval(p_int1, max_int) - np.polyval(p_int1, min_int)
-        int2 = np.polyval(p_int2, max_int) - np.polyval(p_int2, min_int)
+        p_int1 = P.polyint(p1)
+        p_int2 = P.polyint(p2)
+        
+        int1 = P.polyval(p_int1, max_int) - P.polyval(p_int1, min_int)
+        int2 = P.polyval(p_int2, max_int) - P.polyval(p_int2, min_int)
     else:
-        # See https://chromium.googlesource.com/webm/contributor-guide/+/master/scripts/visual_metrics.py
-        lin = np.linspace(min_int, max_int, num=100, retstep=True)
-        interval = lin[1]
-        samples = lin[0]
-        v1 = scipy.interpolate.pchip_interpolate(np.sort(lRA), QA[np.argsort(lRA)], samples)
-        v2 = scipy.interpolate.pchip_interpolate(np.sort(lRT), QT[np.argsort(lRT)], samples)
+        samples, interval = np.linspace(min_int, max_int, num=50, retstep=True)
+        
+        # @TODO: look into "numpy/polynomial/polynomial.py:1350: RankWarning: The fit may be poorly conditioned"
+        # there are also several RuntimeWarning that need to be invesigated in polyutils
+        x1 = np.sort(PSNR1)
+        enforce_stictly_increasing(x1)
+        v1 = scipy.interpolate.pchip_interpolate(x1, lR1[np.argsort(PSNR1)], samples)
+
+        x2 = np.sort(PSNR2)
+        enforce_stictly_increasing(x2)
+        v2 = scipy.interpolate.pchip_interpolate(x2, lR2[np.argsort(PSNR2)], samples)
+        
         # Calculate the integral using the trapezoid method on the samples.
         int1 = np.trapz(v1, dx=interval)
         int2 = np.trapz(v2, dx=interval)
 
     # find avg diff
-    avg_diff = (int2-int1)/(max_int-min_int)
+    avg_exp_diff = (int2-int1)/(max_int-min_int)
+    # @TODO: look into "overflow encountered in exp"
+    avg_diff = (np.exp(avg_exp_diff)-1)*100
     return avg_diff
-

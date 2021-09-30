@@ -1,6 +1,7 @@
 import json, csv, math
 from pathlib import Path
 from typing import Dict, Generator, Tuple, Iterable
+from itertools import chain
 
 from utils import VideoSequence, md5_checksum
 
@@ -43,6 +44,56 @@ class ReconstructionMeta:
             "md5": self.reconstructed_md5
         }
 
+
+class VariantMetricSet2(dict):
+
+    __slots__ = ()
+
+    def __init__(self, mapping=(), **kwargs):
+        if hasattr(mapping, 'items'):
+            mapping = mapping.items()
+        args = [(to_lower(k), v) for k, v in chain(mapping, kwargs.items())]
+        super(VariantMetricSet2, self).__init__(*args)
+
+    def __getitem__(self, k):
+        return super(VariantMetricSet2, self).__getitem__(to_lower(k))
+
+    def __setitem__(self, k, v):
+        return super(VariantMetricSet2, self).__setitem__(to_lower(k), v)
+
+    def __delitem__(self, k):
+        return super(VariantMetricSet2, self).__delitem__(to_lower(k))
+
+    def get(self, k, default=None):
+        return super(VariantMetricSet2, self).get(to_lower(k), default)
+
+    def setdefault(self, k, default=None):
+        return super(VariantMetricSet2, self).setdefault(to_lower(k), default)
+
+    def pop(self, k, v):
+        return super(VariantMetricSet2, self).pop(to_lower(k), v)
+
+    def update(self, mapping=(), **kwargs):
+        super(VariantMetricSet2, self).update(self._process_args(mapping, **kwargs))
+
+    def __contains__(self, k):
+        return super(VariantMetricSet2, self).__contains__(to_lower(k))
+
+    def copy(self):
+        return type(self)(self)
+
+    @classmethod
+    def fromkeys(cls, keys, v=None):
+        return super(VariantMetricSet2, cls).fromkeys((to_lower(k) for k in keys), v)
+
+    def __repr__(self):
+        return '{0}({1})'.format(type(self).__name__, super(VariantMetricSet2, self).__repr__())
+
+
+def to_lower(maybe_str):
+    return maybe_str.lower() if isinstance(maybe_str, str) else maybe_str
+
+
 class VariantData:
 
     @classmethod
@@ -53,14 +104,17 @@ class VariantData:
             generation = data.get("Generation", None)
             bitstream = data.get("Bitstream", None)
             reconstruction = data.get("Reconstruction", None)
-            metrics = data.get("Metrics", None)
-            if metrics != None:
-                for k, v in metrics.items():
+
+            d = data.get("Metrics", None)
+            metrics = None
+            if d != None:
+                metrics = VariantMetricSet2()
+                for k, v in d.items():
                     try:
                         metrics[k] = float(v)
                     except BaseException:
                         metrics[k] = None
-
+            
             verification = data.get("Verification", None)
             contact = data.get("contact", None)
             copyright = data.get("copyRight", None)
@@ -167,20 +221,13 @@ class VariantData:
     #######################################
 
     @property
-    def metrics(self) -> dict:
+    def metrics(self) -> VariantMetricSet2:
         return self._metrics
 
     @metrics.setter
-    def metrics(self, b:dict):
-        if b == None:
-            self._metrics = None
-        keys = [ "Bitrate", "BitrateLog", "DecodeTime", "EncodeTime", "MS_SSIM", "UPSNR", "VMAF", "VPSNR", "YPSNR" ]
-        self._metrics = {}
-        for k in keys:
-            try:
-                self._metrics[k] = float(b[k])
-            except BaseException:
-                self._metrics[k] = None
+    def metrics(self, b:VariantMetricSet2):
+        self._metrics = b
+
 
     #######################################
 
@@ -331,9 +378,19 @@ class AnchorTuple:
         else:
             return p
 
+    def locate_bitstream(self, vd:VariantData, md5_check=True) -> Path:
+        assert vd.bitstream != None, 'bitstream definition not found'
+        assert self.working_dir.is_dir(), 'invalid anchor directory'
+        fp = self.working_dir / Path(vd.bitstream['URI'])
+        assert fp.exists(), f'bitstream file does not exist: {fp}'
+        if md5_check:
+            assert vd.bitstream['md5'] == md5_checksum(fp), f'md5 missmatch: {fp}'
+        return fp
+
+
 #########################################################################################################
 
-def ref_location(row):
+def ref_location(row) -> str:
     loc = row[RefSequenceList.LOC]
     return f'{loc}/{loc}.json'
 
@@ -344,9 +401,9 @@ def iter_ref_locations(reference_list:Path) -> Iterable[str]:
             refs.append( ref_location(row) )
     return refs
 
-def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Dict[str, VideoSequence]:
+def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.'), raises=False) -> Dict[str, VideoSequence]:
     """produces a dict mapping a reference sequence key 
-        to a VideoSequence if the sequence exists - None if it doesn't exist. 
+        to a VideoSequence if the sequence exists - None if it doesn't exist, or raises is True. 
     """
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
@@ -354,21 +411,25 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.')) -> Di
             meta = root_dir / ref_location(row)
             k = row[RefSequenceList.KEY]
             if not meta.exists():
+                if raises:
+                    raise FileNotFoundError(str(meta.resolve()))
                 refs[k] = None
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)
+            if vs.sequence:
+                vs.sequence['Key'] = k
             dur = float(row[RefSequenceList.DUR])
             if not math.isclose( vs.frame_count/vs.frame_rate, dur):
                 print(f'(frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
             refs[k] = vs
     return refs
 
-def iter_anchors_csv(anchor_list:Path):
+def iter_anchors_csv(anchor_list:Path) -> Dict[str, str]:
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
             yield row
 
-def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
+def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None, cfg_keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
     anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
@@ -378,7 +439,10 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
             seq = refs[row[AnchorList.REF_SEQ]]
             description = row[AnchorList.CLAUSE]
             encoder_id = row[AnchorList.REF_ENC] if AnchorList.REF_ENC in row else row[AnchorList.TEST_ENC] # eg. HM16.22, 
-            encoder_cfg = str(row[AnchorList.CFG]).lower() + '.cfg' # eg. S3-HM-01, no directory context specified
+            encoder_cfg_key = str(row[AnchorList.CFG])
+            encoder_cfg = encoder_cfg_key.lower() + '.cfg' # eg. S3-HM-01, no directory context specified
+            if (cfg_keys != None) and (encoder_cfg_key not in cfg_keys):
+                continue
             if cfg_dir:
                 encoder_cfg = Path(cfg_dir / encoder_cfg).resolve()
             variants = row[AnchorList.VARIANTS]
@@ -399,27 +463,3 @@ def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
         if vfp.exists():
             data = VariantData.load(vfp)
         yield vfp, data
-        
-
-def check_anchor_data(a):
-    try:
-        assert a.working_dir.exists(), f'working dir not found: {a.working_dir}'
-        assert a.reference.path.exists(), f'reference sequence not found: {a.reference.path}'
-        assert a.encoder_cfg.exists(), f'encoder config not found: {a.encoder_cfg}'
-        assert parse_encoding_bitdepth(a.encoder_cfg) == 10, f'encoder config error - InternalBitDepth'
-        if a.reference.bit_depth != 10:
-            assert a.reference.bit_depth == 8, f'unexpected bit depth: {a.reference.bit_depth}'
-        conv = conversion_path(a.reference.path, '10bit')
-        assert conv.exists(), '10bit conversion of reference sequence is missing'
-        return None
-    except AssertionError as e:
-        return e
-
-
-def check_variant_data(v, a, md5_check=False):
-    try:
-        assert 'verified' in v.verification, 'variant data not verified'
-        v.locate_bitstream(a.working_dir, md5_check=md5_check)
-        return None
-    except BaseException as e:
-        return e
