@@ -74,7 +74,7 @@ source .venv/bin/activate
 
 install the dependencies:
 ```
-pip3 install -r requiements.txt
+pip3 install -r requirements.txt
 ```
 
 Configure environment variables with your local executable path:
