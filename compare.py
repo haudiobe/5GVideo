@@ -9,14 +9,8 @@ from download import AnchorTupleCtx
 from metrics import SDR_METRICS, BD_RATE, Metric, compute_avg_psnr, compute_log_msssim
 import sys, csv
 
-# plot rd for 1 anchor
-def rd_plot(*anchors):
-    # for (rate, dist) in data:
-    #     print(rate, dist)
-    for a in anchors:
-        # [(r,d), ... ] = a
-        print(*a)
-
+def rounded(v):
+    return f'{round(v, 2):.2f}'
 
 def rd_metrics(variants:List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
         return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
@@ -111,7 +105,7 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
         for key in metrics:
             try:
                 d = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
-                arates[key] = f'{round(d, 2):.2f}'
+                arates[key] = d
             except BaseException as e:
                 if strict:
                     raise
@@ -142,6 +136,7 @@ def csv_dump(data, fp):
 
     if not fp.parent.exists():
         fp.parent.mkdir(exist_ok=True, parents=True)
+
     with open(fp, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -150,43 +145,42 @@ def csv_dump(data, fp):
             for k in fieldnames:
                 if k == "reference":
                     continue
-                
-                if len(stats["min"]):
-                    stats["min"][k] = min(r[k], stats["min"][k])
-                else:
-                    stats["min"][k] = r[k]
+                v = r[k]
 
-                if len(stats["max"]):
-                    stats["max"][k] = max(r[k], stats["max"][k])
+                if k in stats["min"]:
+                    stats["min"][k] = min(v, stats["min"][k])
                 else:
-                    stats["max"][k] = r[k]
+                    stats["min"][k] = v
 
-                if len(stats["avg"]):
-                    stats["avg"][k] = stats["max"][k].append()
+                if k in stats["max"]:
+                    stats["max"][k] = max(v, stats["max"][k])
                 else:
-                    stats["avg"][k] = [r[k]]
+                    stats["max"][k] = v
+
+                if k in stats["avg"]:
+                    stats["avg"][k].append(v)
+                else:
+                    stats["avg"][k] = [v]
+            
             writer.writerow({ k: r[k] for k in fieldnames })
 
         r = { "reference": "Min" }
-        for k in fieldnames:
-            for k in fieldnames:
-                r[k] = stats["min"][k]
-            writer.writerow(r)
+        for k in fieldnames[1:]:
+            r[k] = stats["min"][k]
+        writer.writerow(r)
 
         r = { "reference": "Max" }
-        for k in fieldnames:
-            for k in fieldnames:
-                r[k] = stats["max"][k]
+        for k in fieldnames[1:]:
+            r[k] = stats["max"][k]
         writer.writerow(r)
 
         r = { "reference": "Avg" }
-        for k in fieldnames:
-            for k in fieldnames:
-                avg = 0
-                for v in stats["avg"][k]:
-                    avg += v
-                r[k] = avg / stats["avg"][k]
-            writer.writerow(r)
+        for k in fieldnames[1:]:
+            avg = 0
+            for j in stats["avg"][k]:
+                avg += j
+            r[k] = avg / len(stats["avg"][k])
+        writer.writerow(r)
 
 
 def main():
