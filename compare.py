@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple, Any
 
-from numpy.core.fromnumeric import var
+import numpy as np
 
 from anchor import VariantData, iter_variants, AnchorTuple, VariantMetricSet2
 from download import AnchorTupleCtx
@@ -109,8 +109,6 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
             except BaseException as e:
                 if strict:
                     raise
-                # err = str(e)[:75] if len(str(e)) > 75 else str(e)
-                # arates[key] = f'Err: {err}..'
                 arates[key] = str(e)
 
         bd_rates.append((aref, atest, arates))
@@ -145,7 +143,11 @@ def csv_dump(data, fp):
             for k in fieldnames:
                 if k == "reference":
                     continue
+                
                 v = r[k]
+                # ignore errors reported as strings
+                if type(v) == str:
+                    continue
 
                 if k in stats["min"]:
                     stats["min"][k] = min(v, stats["min"][k])
