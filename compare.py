@@ -154,8 +154,8 @@ def main():
     
     metrics = [str(m.key) for m in SDR_METRICS]
 
-    if ref.is_dir() and (not (ref.parent / 'streams.csv').exists()) \
-        and test.is_dir() and (not (test.parent / 'streams.csv').exists()):
+    if ref.is_dir() and (ref.parent / 'streams.csv').exists() \
+        and test.is_dir() and (test.parent / 'streams.csv').exists():
         # eg. compare.py ./scenario/codec1/a_key1 ./scenario/codec2/a_key2
         seqid, r = compare_anchors_directories(ref, test, metrics)
         print(seqid, r)
