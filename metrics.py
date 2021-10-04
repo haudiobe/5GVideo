@@ -497,5 +497,5 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0) -> float:
     # find avg diff
     avg_exp_diff = (int2-int1)/(max_int-min_int)
     # @TODO: look into "overflow encountered in exp"
-    avg_diff = (np.exp(avg_exp_diff)-1)*100
+    avg_diff = (np.exp(avg_exp_diff)-1) * -100
     return avg_diff
