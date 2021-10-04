@@ -133,13 +133,60 @@ def csv_dump(data, fp):
         Metric.MSSSIM.key,
         Metric.VMAF.key
     ]
+
+    stats = {
+        'min': {},
+        'max': {},
+        'avg': {},
+    }
+
     if not fp.parent.exists():
         fp.parent.mkdir(exist_ok=True, parents=True)
-    with open(fp, 'w') as f:
+    with open(fp, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
+        
         for r in data:
+            for k in fieldnames:
+                if k == "reference":
+                    continue
+                
+                if len(stats["min"]):
+                    stats["min"][k] = min(r[k], stats["min"][k])
+                else:
+                    stats["min"][k] = r[k]
+
+                if len(stats["max"]):
+                    stats["max"][k] = max(r[k], stats["max"][k])
+                else:
+                    stats["max"][k] = r[k]
+
+                if len(stats["avg"]):
+                    stats["avg"][k] = stats["max"][k].append()
+                else:
+                    stats["avg"][k] = [r[k]]
             writer.writerow({ k: r[k] for k in fieldnames })
+
+        r = { "reference": "Min" }
+        for k in fieldnames:
+            for k in fieldnames:
+                r[k] = stats["min"][k]
+            writer.writerow(r)
+
+        r = { "reference": "Max" }
+        for k in fieldnames:
+            for k in fieldnames:
+                r[k] = stats["max"][k]
+        writer.writerow(r)
+
+        r = { "reference": "Avg" }
+        for k in fieldnames:
+            for k in fieldnames:
+                avg = 0
+                for v in stats["avg"][k]:
+                    avg += v
+                r[k] = avg / stats["avg"][k]
+            writer.writerow(r)
 
 
 def main():
