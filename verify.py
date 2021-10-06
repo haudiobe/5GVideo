@@ -150,7 +150,7 @@ def decoder_verification_preflight(a:AnchorTuple):
     return err
 
 
-def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True) -> Tuple[bool, str]:
+def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True, reconstrution_md5=False) -> Tuple[bool, str]:
     """
     1. decode into a temporary folder
     2. compute metrics with freshly decoded data
@@ -177,8 +177,9 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     if not a.dry_run:
         tmp.mkdir(exist_ok=True)
 
-    verify_reconstruction_md5 = vd.reconstruction['md5'] != 'unknown'
-    r = dec.decode_variant(a, vd, tmp, md5=verify_reconstruction_md5)
+    verify_reconstruction_md5 = reconstrution_md5 and (vd.reconstruction['md5'] != 'unknown')
+    r = dec.decode_variant(a, vd, tmp, md5=reconstrution_md5)
+    print("decoded")
     _, metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF), dist_dir=tmp)
 
     if a.dry_run:

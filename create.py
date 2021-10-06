@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Iterable
 
 from encoders import get_encoder
-from metrics import Metric, bitstream_size, compute_metrics, anchor_metrics_to_csv
-from anchor import AnchorTuple, ReconstructionMeta, reference_sequences_dict, iter_anchors, iter_variants
+from metrics import bitstream_size, compute_metrics, anchor_metrics_to_csv
+from anchor import AnchorTuple, ReconstructionMeta, Metric, reference_sequences_dict, iter_anchors, iter_variants
 
 
 

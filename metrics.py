@@ -16,7 +16,7 @@ import scipy.interpolate
 
 from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
-from anchor import AnchorTuple, VariantData, VariantMetricSet2, iter_variants
+from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, iter_variants
 from utils import run_process
 from encoders import get_encoder, parse_encoding_bitdepth, parse_variant_qp
 from convert import as_10bit_sequence, as_8bit_sequence
@@ -26,55 +26,6 @@ from typing import List, Dict, Generator, Iterable
 
 class VideoFormatException(BaseException):
     pass
-
-class M:
-
-    def __init__(self, *args) -> None:
-        assert len(args) and (len(args) < 2)
-        self.key = str(args[0]).lower()
-        self.json_key = str(args[0])
-        self.csv_key = str(args[-1])
-
-    def __repr__(self):
-        return self.key
-
-    def __str__(self):
-        return self.key
-
-class Metric(Enum):
-
-    @property
-    def csv_key(self):
-        return self.value.csv_key
-
-    @property
-    def json_key(self):
-        return self.value.json_key
-
-    @property
-    def key(self):
-        return self.value.key
-
-    PSNR        = M( "PSNR" )
-    PSNR_Y      = M( "YPSNR" )
-    PSNR_U      = M( "UPSNR" )
-    PSNR_V      = M( "VPSNR" )
-    MSSSIM      = M( "MS_SSIM" )
-    VMAF        = M( "VMAF" )
-    BITRATE     = M( "Bitrate" )
-    BITRATELOG  = M( "BitrateLog" )
-    ENCODETIME  = M( "EncodeTime" )
-    DECODETIME  = M( "DecodeTime" )
-
-    @classmethod
-    def json_dict(cls, v:VariantMetricSet2):
-        j = { m.key: m.json_key for m in cls }
-        return { j[k]: v for (k, v) in v.items() }
-
-    @classmethod
-    def csv_dict(cls, v:VariantMetricSet2):
-        c = { m.key: m.csv_key for m in cls }
-        return { c[k]: v for (k, v) in v.items() }
 
 SDR_METRICS = (
         Metric.BITRATELOG,
@@ -204,8 +155,8 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
         '-p', f'EnableJVETPSNR=1',
         '-p', f'EnableShowMSE=1',
         '-p', f'EnablePSNR=1',
-        '-p', f'EnableSSIM=1',
-        '-p', f'EnableMSSSIM=1',
+        # '-p', f'EnableSSIM=1',
+        # '-p', f'EnableMSSSIM=1',
         '-p', f'SilentMode=0',
         '-p', f'NumberOfFrames={dist.frame_count}'
     ]
@@ -223,7 +174,6 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
             Metric.PSNR_Y.key: -1,
             Metric.PSNR_U.key: -1,
             Metric.PSNR_V.key: -1,
-            Metric.PSNR.key: -1,
             Metric.MSSSIM.key: -1
         }
 
@@ -232,13 +182,11 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
 
     if ref.chroma_format == ChromaFormat.YUV:
         (y,u,v) = (metrics["PSNR-Y"], metrics["PSNR-U"], metrics["PSNR-V"])
-        psnr = ((6*y)+u+v)/8
-        log_msssim = (-10.0 * math.log10(1 - metrics["JMSSSIM-Y"]))
+        log_msssim = metrics["JMSSSIM-Y"]
         return {
             Metric.PSNR_Y.key: y,
             Metric.PSNR_U.key: u,
             Metric.PSNR_V.key: v,
-            Metric.PSNR.key: psnr,
             Metric.MSSSIM.key: log_msssim
         }
     else:
@@ -327,8 +275,8 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
 
 ################################################################################
 
-def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir:Path=None) -> VariantMetricSet2:
-    
+def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir:Path=None) -> VariantMetricSet:
+    print('compute_metrics()')
     # check if a pre-conversion step is needed, 
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
     if dist_dir == None:
@@ -346,11 +294,15 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         dist = VideoSequence.from_sidecar_metadata(dist_dir / f'{vd.variant_id}.yuv.json')
         assert ref.bit_depth == dist.bit_depth
 
+    print('ready for metrics')
+
     if not os.getenv('DISABLE_HDRMETRICS'):
         metrics_cfg = os.getenv('HDRMETRICS_CFG')
-        metrics = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
+        d = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg=Path(metrics_cfg) if metrics_cfg else None)
+        metrics = VariantMetricSet(d)
+        metrics.compute_avg_psnr(strict=False)
     else:
-        metrics = VariantMetricSet2()
+        metrics = VariantMetricSet()
         metrics[Metric.PSNR_Y.key] = None
         metrics[Metric.PSNR_U.key] = None
         metrics[Metric.PSNR_V.key] = None
@@ -364,7 +316,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         metrics[Metric.VMAF.key] = vmaf_metrics(ref, dist, mdl, dry_run=a.dry_run)
     
     if a.dry_run:
-        return vd.variant_id, VariantMetricSet2()
+        return vd.variant_id, VariantMetricSet()
 
     bitstream = a.working_dir / vd.bitstream['URI']
 
@@ -445,12 +397,43 @@ def compute_log_msssim(vd:VariantData):
 
 ################################################################################
 
-def enforce_stictly_increasing(arr):
-    err = ','.join([f'{x} >= {y}' for _, (x, y) in enumerate(zip(arr, arr[1:])) if not x < y])
-    if len(err) > 0:
-        raise Exception(f'expected strictly increasing samples, got: { err }')
-        
-def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0) -> float:
+def sort_rates_on(rates, metric):
+    """
+    sort (rate, psnr) samples based on psnr 
+    """
+    m = np.array(metric)
+    return np.array(rates)[np.argsort(m)], np.sort(m)
+
+def sanitize_rd_data(rates, PSNR):
+    # sort for increasing bitrate 
+    rate = np.sort(rates)
+    dist = PSNR[np.argsort(rates)]
+    np.array(PSNR)
+    _sorted = []
+    for i, r in enumerate(rate):
+        d = dist[i]
+        if len(_sorted):
+            p = _sorted[-1]
+            if (d <= p[1]): # increasing rate, but no quality improvement
+                print(f'/!\ rate increased, but quality did not - dropping sample ( r:{r}, d:{d} ) !')
+                continue
+        _sorted.append((r, d))
+    pre = None
+    for m in _sorted:
+        assert 1 if ( pre == None ) else ( m > pre )
+    _rate, _dist = [np.array(arr) for arr in zip(*_sorted)]
+    # re-sort on PSNR
+    return _rate[np.argsort(_dist)], np.sort(_dist)
+
+
+def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=True) -> float:
+
+    if sanitize:
+        R1, PSNR1 = sanitize_rd_data(R1, np.array(PSNR1))
+        R2, PSNR2 = sanitize_rd_data(R2, np.array(PSNR2))
+    else:
+        R1, PSNR1 = sort_rates_on(R1, PSNR1)
+        R2, PSNR2 = sort_rates_on(R2, PSNR2)
 
     """
     adapted from https://github.com/Anserw/Bjontegaard_metric
@@ -479,23 +462,28 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0) -> float:
         int2 = P.polyval(p_int2, max_int) - P.polyval(p_int2, min_int)
     else:
         samples, interval = np.linspace(min_int, max_int, num=50, retstep=True)
-        
-        # @TODO: look into "numpy/polynomial/polynomial.py:1350: RankWarning: The fit may be poorly conditioned"
-        # there are also several RuntimeWarning that need to be invesigated in polyutils
-        x1 = np.sort(PSNR1)
-        enforce_stictly_increasing(x1)
-        v1 = scipy.interpolate.pchip_interpolate(x1, lR1[np.argsort(PSNR1)], samples)
+        [x1, y1] = [PSNR1, lR1]
+        [x2, y2] = [PSNR2, lR2]
 
-        x2 = np.sort(PSNR2)
-        enforce_stictly_increasing(x2)
-        v2 = scipy.interpolate.pchip_interpolate(x2, lR2[np.argsort(PSNR2)], samples)
-        
-        # Calculate the integral using the trapezoid method on the samples.
-        int1 = np.trapz(v1, dx=interval)
-        int2 = np.trapz(v2, dx=interval)
+        err = None
+        try:
+            v1 = scipy.interpolate.pchip_interpolate(x1, y1, samples)
+            v2 = scipy.interpolate.pchip_interpolate(x2, y2, samples)
 
-    # find avg diff
-    avg_exp_diff = (int2-int1)/(max_int-min_int)
-    # @TODO: look into "overflow encountered in exp"
-    avg_diff = (np.exp(avg_exp_diff)-1) * -100
-    return avg_diff
+            # Calculate the integral using the trapezoid method on the samples.
+            int1 = np.trapz(v1, dx=interval)
+            int2 = np.trapz(v2, dx=interval)
+
+        except BaseException as e:
+            err = e
+            print(e)
+
+    if err:
+        avg_diff = 0
+    else:
+        # find avg diff
+        avg_exp_diff = (int2-int1)/(max_int-min_int)
+        # @TODO: look into "overflow encountered in exp"
+        avg_diff = (np.exp(avg_exp_diff)-1) * -100
+
+    return avg_diff, R1, PSNR1, R2, PSNR2

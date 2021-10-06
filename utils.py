@@ -206,7 +206,10 @@ class VideoSequence(VideoInfo):
         
         assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
         assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
-        assert 'md5' in data['Sequence'], f"{metadata}\n'md5' key missing from 'Sequence' metadata"
+        uri = Path(data['Sequence']['URI'])
+        
+        if 'md5' not in data['Sequence']:
+            print( f"/!\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}" )
         
         data['Sequence']['Key'] = None # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.
         raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI']) # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
