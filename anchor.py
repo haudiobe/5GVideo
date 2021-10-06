@@ -102,25 +102,31 @@ class VariantMetricSet(dict):
         try:
             [Y, U, V] = [self.get(k.key) for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
             psnr = ((6*Y)+U+V)/8
-            self.update({ Metric.PSNR.key: psnr })
+            u = { Metric.PSNR.key: psnr }
+            self.update(u)
             return psnr
         except BaseException as e:
             if strict:
                 raise
-            self.update({ Metric.PSNR.key: str(e) })
+            u = { Metric.PSNR.key: str(e) }
+            self.update(u)
             return None
 
     __slots__ = ()
 
-    @staticmethod
-    def _process_args(mapping=(), **kwargs):
+    @classmethod
+    def _process_args(cls, mapping=(), **kwargs):
         if hasattr(mapping, 'items'):
             mapping = mapping.items()
-        return [(to_lower(k), v) for k, v in chain(mapping, kwargs.items())]
+        d = {}
+        for K, v in chain(mapping, kwargs.items()):
+            k = to_lower(K)
+            d[k] = v
+        return d
 
     def __init__(self, mapping=(), **kwargs):
         args = self._process_args(mapping, **kwargs)
-        super(VariantMetricSet, self).__init__(mapping=args)
+        super(VariantMetricSet, self).__init__(args)
 
     def __getitem__(self, k):
         return super(VariantMetricSet, self).__getitem__(to_lower(k))
@@ -142,7 +148,7 @@ class VariantMetricSet(dict):
 
     def update(self, mapping=(), **kwargs):
         args = self._process_args(mapping, **kwargs)
-        super(VariantMetricSet, self).update(mapping=args)
+        super(VariantMetricSet, self).update(args)
 
     def __contains__(self, k):
         return super(VariantMetricSet, self).__contains__(to_lower(k))

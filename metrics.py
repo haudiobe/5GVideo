@@ -399,22 +399,27 @@ def compute_log_msssim(vd:VariantData):
 
 def sort_rates_on(rates, metric):
     """
-    sort (rate, psnr) samples based on psnr 
+    sort [(rate, psnr), ...] samples based on psnr 
     """
-    m = np.array(metric)
-    return np.array(rates)[np.argsort(m)], np.sort(m)
+    return rates[np.argsort(metric)], np.sort(metric)
+
+def sort_on_rates(rates, metric):
+    """
+    sort [(rate, psnr), ...] samples based on rate 
+    """
+    return np.sort(rates), metric[np.argsort(rates)]
 
 def sanitize_rd_data(rates, PSNR):
     # sort for increasing bitrate 
     rate = np.sort(rates)
-    dist = PSNR[np.argsort(rates)]
+    dist = np.array(PSNR)[np.argsort(rates)]
     np.array(PSNR)
     _sorted = []
     for i, r in enumerate(rate):
         d = dist[i]
         if len(_sorted):
             p = _sorted[-1]
-            if (d <= p[1]): # increasing rate, but no quality improvement
+            if (d <= p[1]):
                 print(f'/!\ rate increased, but quality did not - dropping sample ( r:{r}, d:{d} ) !')
                 continue
         _sorted.append((r, d))
@@ -422,18 +427,17 @@ def sanitize_rd_data(rates, PSNR):
     for m in _sorted:
         assert 1 if ( pre == None ) else ( m > pre )
     _rate, _dist = [np.array(arr) for arr in zip(*_sorted)]
-    # re-sort on PSNR
-    return _rate[np.argsort(_dist)], np.sort(_dist)
+    return _rate, _dist
 
 
-def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=True) -> float:
+def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=False) -> float:
 
     if sanitize:
-        R1, PSNR1 = sanitize_rd_data(R1, np.array(PSNR1))
-        R2, PSNR2 = sanitize_rd_data(R2, np.array(PSNR2))
+        R1, PSNR1 = sanitize_rd_data(R1, PSNR1)
+        R2, PSNR2 = sanitize_rd_data(R2, PSNR2)
     else:
-        R1, PSNR1 = sort_rates_on(R1, PSNR1)
-        R2, PSNR2 = sort_rates_on(R2, PSNR2)
+        PSNR1 = np.array(PSNR1)
+        PSNR2 = np.array(PSNR2)
 
     """
     adapted from https://github.com/Anserw/Bjontegaard_metric
@@ -445,25 +449,25 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=True) -> float:
     lR1 = np.log(R1)
     lR2 = np.log(R2)
 
-    # rate method
-    p1 = Polynomial.fit(PSNR1, lR1, 3)
-    p2 = Polynomial.fit(PSNR2, lR2, 3)
-
     # integration interval
     min_int = max(min(PSNR1), min(PSNR2))
     max_int = min(max(PSNR1), max(PSNR2))
 
     # find integral
     if piecewise == 0:
+        p1 = Polynomial.fit(PSNR1, lR1, 3)
+        p2 = Polynomial.fit(PSNR2, lR2, 3)
+
         p_int1 = P.polyint(p1)
         p_int2 = P.polyint(p2)
         
         int1 = P.polyval(p_int1, max_int) - P.polyval(p_int1, min_int)
         int2 = P.polyval(p_int2, max_int) - P.polyval(p_int2, min_int)
+
     else:
-        samples, interval = np.linspace(min_int, max_int, num=50, retstep=True)
-        [x1, y1] = [PSNR1, lR1]
-        [x2, y2] = [PSNR2, lR2]
+        samples, interval = np.linspace(min_int, max_int, num=100, retstep=True)
+        [y1, x1] = sort_on_rates(lR1, PSNR1)
+        [y2, x2] = sort_on_rates(lR2, PSNR2)
 
         err = None
         try:
@@ -485,5 +489,5 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=True) -> float:
         avg_exp_diff = (int2-int1)/(max_int-min_int)
         # @TODO: look into "overflow encountered in exp"
         avg_diff = (np.exp(avg_exp_diff)-1) * -100
-
+    
     return avg_diff, R1, PSNR1, R2, PSNR2

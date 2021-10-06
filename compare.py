@@ -36,14 +36,7 @@ def rd_plot(r0, d0, r1, d1, dist='psnr', anchor_label='anchor', test_label='test
 def rd_metrics(variants:List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
         return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
 
-def normalize_metrics(data:List[VariantData]):
-    for vd in data:
-        compute_avg_psnr(vd)
-
 def compare_anchors_metrics( anchor:List[VariantData], test:List[VariantData], rate="BitrateLog", dist="PSNR", piecewise=1, strict=False, sanitize=True ) -> float:
-    if dist.lower() == str(Metric.PSNR.key):
-        normalize_metrics(anchor)
-        normalize_metrics(test)
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     try:
@@ -96,13 +89,13 @@ def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str]
                 if sanitize:
                     t += ' [sanitized]'
                 fig = rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=aref.anchor_key, test_label=atest.anchor_key, show=False)
-                fname = testdir.parent / 'Metrics' / f'{refdir.name}.{testdir.name}.{key}.png'
+                fname = testdir.parent / 'Metrics' / f'{refdir.name}.{testdir.name}.{key}.png'.lower()
                 fig.savefig(fname)
         except BaseException as e:
             if strict:
                 raise
             vms[key] = str(e)
-
+    
     return aref.reference.sequence['Key'], vms
 
 
@@ -135,8 +128,8 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
         arates = {}
         for key in metrics:
             try:
-                d = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
-                arates[key] = d
+                bd, *_  = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
+                arates[key] = bd
             except BaseException as e:
                 if strict:
                     raise
@@ -167,52 +160,61 @@ def csv_dump(data, fp):
         fp.parent.mkdir(exist_ok=True, parents=True)
 
     with open(fp, 'w', newline='') as f:
+
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         
         for r in data:
+            
+            row = {}
+
             for k in fieldnames:
+                row[k] = r[k]
+                if len(data) == 1:
+                    continue
                 if k == "reference":
                     continue
                 
-                v = r[k]
-                # ignore errors reported as strings
-                if type(v) == str:
+                v = row[k]
+                if v == None or type(v) == str:
                     continue
-
                 if k in stats["min"]:
                     stats["min"][k] = min(v, stats["min"][k])
                 else:
                     stats["min"][k] = v
-
                 if k in stats["max"]:
                     stats["max"][k] = max(v, stats["max"][k])
                 else:
                     stats["max"][k] = v
-
                 if k in stats["avg"]:
                     stats["avg"][k].append(v)
                 else:
                     stats["avg"][k] = [v]
             
-            writer.writerow({ k: r[k] for k in fieldnames })
+            writer.writerow(row)
+
+        if len(data) == 1:
+            return
 
         r = { "reference": "Min" }
         for k in fieldnames[1:]:
-            r[k] = stats["min"][k]
+            r[k] = stats["min"].get(k, None)
         writer.writerow(r)
 
         r = { "reference": "Max" }
         for k in fieldnames[1:]:
-            r[k] = stats["max"][k]
+            r[k] = stats["max"].get(k, None)
         writer.writerow(r)
 
         r = { "reference": "Avg" }
         for k in fieldnames[1:]:
-            avg = 0
-            for j in stats["avg"][k]:
-                avg += j
-            r[k] = avg / len(stats["avg"][k])
+            avg = None
+            if k in stats["avg"] and len(stats["avg"][k]):
+                avg = 0
+                for j in stats["avg"][k]:
+                    avg += j
+                avg /= len(stats["avg"][k])
+            r[k] = avg
         writer.writerow(r)
 
 
@@ -238,8 +240,10 @@ def main():
             Metric.PSNR, 
             Metric.MSSSIM, 
         )]
-        seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=True, plots=plots)
-        print(seqid,':', r.items())
+        seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=False, plots=plots)
+        r['reference'] = seqid
+        outp = test.parent / 'Metrics' / f'{ref.name}.{test.name}.csv'.lower()
+        csv_dump([r], outp)
     else:
         # eg. compare.py ./scenario/codec1@cfg_id1 ./scenario/codec2@cfg_id2
         _, refkey = _parse_filter(ref)
