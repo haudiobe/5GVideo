@@ -18,7 +18,7 @@ import sys, csv
 def rounded(v):
     return f'{round(v, 2):.2f}'
 
-def rd_plot(r0, d0, r1, d1, dist='psnr', anchor_label='anchor', test_label='test', title=''):
+def rd_plot(r0, d0, r1, d1, dist='psnr', anchor_label='anchor', test_label='test', title='', show=True):
     if title == '':
         title = f'{dist} rd curve'
     fig, axs = plt.subplots(1, 1, figsize=(20,15))
@@ -29,7 +29,9 @@ def rd_plot(r0, d0, r1, d1, dist='psnr', anchor_label='anchor', test_label='test
     axs.tick_params(axis='both', which='major', labelsize=21)
     axs.set_title(title, fontdict={'fontsize': 24, 'fontweight': 'medium'})
     axs.legend([anchor_label, test_label])
-    plt.show(block=True)
+    if show:
+        plt.show(block=True)
+    return fig
 
 def rd_metrics(variants:List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
         return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
@@ -72,14 +74,7 @@ def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, cs
             writer.writerow( row )
 
 
-def plot_anchors(vref, vtest, key, anchor_label='anchor', test_label='test'):
-    reduce = lambda x: [ *zip( *[(v.metrics[key], v.metrics[Metric.BITRATELOG.key]) for v in x] ) ]
-    d0, r0 = reduce(vref)
-    d1, r1 = reduce(vtest)
-    _ = rd_plot( r0, d0, r1, d1, key, anchor_label=anchor_label, test_label=test_label )
-    print(_)
-
-def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str], strict=False, sanitize=True) -> Iterable[Tuple[str, VariantMetricSet]]:
+def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str], strict=False, sanitize=True, plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
 
     def load_anchor_directory(ad:Path) -> Tuple[AnchorTuple, List[VariantData]]:
         assert ad.is_dir(), f'not a directory {ad}'
@@ -96,13 +91,13 @@ def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str]
         try:
             bd, r0, d0, r1, d1 = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize)
             vms[key] = f'{round(bd, 3):.3f}'
-            if 'psnr' in key:
-                print(key)
+            if plots and (key in plots):
                 t = f'bd-rate @{key} | {vms[key]}'
                 if sanitize:
                     t += ' [sanitized]'
-                rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=aref.anchor_key, test_label=atest.anchor_key)
-                # plot_anchors(vref, vtest, key)
+                fig = rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=aref.anchor_key, test_label=atest.anchor_key, show=False)
+                fname = testdir.parent / 'Metrics' / f'{refdir.name}.{testdir.name}.{key}.png'
+                fig.savefig(fname)
         except BaseException as e:
             if strict:
                 raise
@@ -236,7 +231,14 @@ def main():
     if ref.is_dir() and (ref.parent / 'streams.csv').exists() \
         and test.is_dir() and (test.parent / 'streams.csv').exists():
         # eg. compare.py ./scenario/codec1/a_key1 ./scenario/codec2/a_key2
-        seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=False)
+        plots = [ m.key for m in (
+            Metric.PSNR_Y, 
+            Metric.PSNR_U, 
+            Metric.PSNR_V, 
+            Metric.PSNR, 
+            Metric.MSSSIM, 
+        )]
+        seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=True, plots=plots)
         print(seqid,':', r.items())
     else:
         # eg. compare.py ./scenario/codec1@cfg_id1 ./scenario/codec2@cfg_id2
