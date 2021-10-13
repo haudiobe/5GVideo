@@ -130,7 +130,7 @@ class EncoderBase(ABC):
         
         cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
         run_process(logfile, decoder, *cmd, dry_run=a.dry_run)
-
+        
         dist = VideoSequence(reconstructed, **a.reference.properties)
         dist.start_frame = 1
         dist.frame_count = a.reference.frame_count
@@ -138,9 +138,9 @@ class EncoderBase(ABC):
         dist.bit_depth = coded_bit_depth
         if not a.dry_run:
             dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
-
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
-    
+
+
 def parse_encoding_bitdepth(cfg:Path, encoder_id:str=None):
     if encoder_id != None:
         return __encoders__[encoder_id].parse_encoding_bitdepth(cfg)
@@ -345,15 +345,17 @@ class JM(EncoderBase):
 
     @classmethod
     def get_variant_cli(cls, args:str) -> List[str]:
+        qp = parse_variant_qp(args)
         qp_args = f'-p QPISlice={qp} -p QPPSlice={qp}'
         return shlex.split(qp_args)
 
     @classmethod
     def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
-        tracefile = v.anchor.working_dir / f'{v.basename}.enc.trace.txt'
-        statsfile = v.anchor.working_dir / f'{v.basename}.enc.stats.dat'
-        args = [ "-p", "DisplayEncParams=1",
+        # tracefile = a.anchor.working_dir / f'{a.basename}.enc.trace.txt'
+        # statsfile = a.anchor.working_dir / f'{a.basename}.enc.stats.dat'
+        args = [ 
             "-d", f'{a.encoder_cfg}',
+            # "-p", "DisplayEncParams=1",
             "-p", f'InputFile={a.reference.path}',
             "-p", f'OutputFile={bitstream}',
             "-p", f'FrameRate={float(a.reference.frame_rate)}',
@@ -365,11 +367,10 @@ class JM(EncoderBase):
             "-p", f'OutputHeight={a.reference.height}',
             "-p", f'SourceBitDepthLuma={a.reference.bit_depth}',
             "-p", f'SourceBitDepthChroma={a.reference.bit_depth}',
-            "-p", f'TraceFile={tracefile}',
-            "-p", f'StatsFile={statsfile}'
+            # "-p", f'TraceFile={tracefile}',
+            # "-p", f'StatsFile={statsfile}',
+
         ]
-        
-        assert a.reference.chroma_loc_type == 2, 'chroma_loc_type != 2 not implemented'
 
         if a.reference.interleaved:
             args += ["-p", "Interleaved=1"]
@@ -440,7 +441,7 @@ class ETM(EncoderBase):
             # '--hdr_metric' requires specific  compilation flags
         ]
         
-        assert a.reference.chroma_loc_type == 2, 'chroma_loc_type != 2 not implemented'
+        assert a.reference.chroma_sample_loc_type == 2, 'chroma_sample_loc_type != 2 not implemented'
 
         if reconstruction:
             # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
