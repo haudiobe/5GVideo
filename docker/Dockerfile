@@ -6,7 +6,7 @@ ARG VTM_VERSION=tags/VTM-11.0
 # tags/JM-19.0 is the last tag for JM, missing some build toolchain updates commits,
 # therefor the latest commit from master is referenced here.
 ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
-ARG HDRTOOLS_VERSION=tags/v0.22
+ARG HDRTOOLS_VERSION=tags/v0.23
 ARG VMAF_VERSION=tags/v2.1.1
 # VTM w/ HDRTOOLS extension: -DEXTENSION_HDRTOOLS=on
 ARG VTM_EXTENSION_HDRTOOLS
