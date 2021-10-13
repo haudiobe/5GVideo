@@ -1,4 +1,4 @@
-FROM python:buster
+FROM python:3.9-buster
 
 ARG HM_VERSION=tags/HM-16.22
 ARG SCM_VERSION=tags/HM-16.21+SCM-8.8
@@ -16,7 +16,8 @@ ARG HDRTOOLS_JM_PSNR
 RUN DEBIAN_FRONTEND=noninteractive \
   apt update && apt install --assume-yes --no-install-recommends \
     build-essential wget ca-certificates unzip \
-    cmake
+    cmake \
+    gfortran libopenblas-dev liblapack-dev
 
 WORKDIR /home/deps
 
