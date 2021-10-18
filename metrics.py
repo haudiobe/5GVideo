@@ -259,8 +259,7 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
         str(dist.path),
         str(model),
         '--log', str(output),
-        '--log-fmt', 'json',
-        '--psnr', '--ssim', '--ms-ssim'
+        '--log-fmt', 'json'
     ]
     
     run_process(log, *cmd, dry_run=dry_run)
@@ -409,11 +408,36 @@ def sort_on_rates(rates, metric):
     """
     return np.sort(rates), metric[np.argsort(rates)]
 
-def sanitize_rd_data(rates, PSNR):
-    # sort for increasing bitrate 
-    rate = np.sort(rates)
-    dist = np.array(PSNR)[np.argsort(rates)]
-    np.array(PSNR)
+
+def sanitize_rd_data2(rates, PSNR, step=0.001):
+    """- sort samples for increasing rates
+    - fix saturated values, by adding a step value"""
+    rate = np.array(rates)
+    dist = np.array(PSNR)
+    sorted = np.lexsort((rate, dist))
+    rate = rate[sorted]
+    dist = dist[sorted]
+    dist_max = dist[-1]
+    dist_fix = np.array([], dtype=np.float64)
+    step = 0.001
+    fix = 0.001
+    for i, _ in enumerate(rate):
+        d = dist[i]
+        if d == dist_max:
+            d += fix
+            fix += step
+        dist_fix.append(d)
+    return rate, dist_fix
+
+
+def sanitize_rd_data1(rates, PSNR, preserve_last_sample=True):
+    """- sort samples for increasing rates
+    - drop samples on non increasing dist values"""
+    rate = np.array(rates)
+    dist = np.array(PSNR)
+    sorted = np.lexsort((rate, dist))
+    rate = rate[sorted]
+    dist = dist[sorted]
     _sorted = []
     for i, r in enumerate(rate):
         d = dist[i]
@@ -421,20 +445,22 @@ def sanitize_rd_data(rates, PSNR):
             p = _sorted[-1]
             if (d <= p[1]):
                 print(f'/!\ rate increased, but quality did not - dropping sample ( r:{r}, d:{d} ) !')
+                # keep the last sample on saturated values, drop the previous one
+                # if preserve_last_sample and (len(rate) == (i+1)):
+                #     dist.pop()
+                # else:
+                #     continue
                 continue
         _sorted.append((r, d))
-    pre = None
-    for m in _sorted:
-        assert 1 if ( pre == None ) else ( m > pre )
-    _rate, _dist = [np.array(arr) for arr in zip(*_sorted)]
-    return _rate, _dist
+    return [np.array(arr) for arr in zip(*_sorted)]
 
 
-def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=False) -> float:
+
+def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=1, sanitize=False) -> float:
 
     if sanitize:
-        R1, PSNR1 = sanitize_rd_data(R1, PSNR1)
-        R2, PSNR2 = sanitize_rd_data(R2, PSNR2)
+        R1, PSNR1 = sanitize_rd_data1(R1, PSNR1)
+        R2, PSNR2 = sanitize_rd_data1(R2, PSNR2)
     else:
         PSNR1 = np.array(PSNR1)
         PSNR2 = np.array(PSNR2)
@@ -453,11 +479,10 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=False) -> float:
     min_int = max(min(PSNR1), min(PSNR2))
     max_int = min(max(PSNR1), max(PSNR2))
 
-    # find integral
     if piecewise == 0:
         p1 = Polynomial.fit(PSNR1, lR1, 3)
         p2 = Polynomial.fit(PSNR2, lR2, 3)
-
+        
         p_int1 = P.polyint(p1)
         p_int2 = P.polyint(p2)
         
@@ -480,14 +505,12 @@ def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=0, sanitize=False) -> float:
 
         except BaseException as e:
             err = e
-            print(e)
 
     if err:
+        print(err)
         avg_diff = 0
     else:
-        # find avg diff
         avg_exp_diff = (int2-int1)/(max_int-min_int)
-        # @TODO: look into "overflow encountered in exp"
         avg_diff = (np.exp(avg_exp_diff)-1) * -100
     
     return avg_diff, R1, PSNR1, R2, PSNR2
