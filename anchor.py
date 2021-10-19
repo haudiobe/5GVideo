@@ -1,4 +1,4 @@
-import json, csv, math
+import json, csv, math, enum
 from pathlib import Path
 from typing import Dict, Generator, Tuple, Iterable
 from itertools import chain
@@ -27,11 +27,62 @@ class RefSequenceList:
     DUR = 'Duration'
 
 
+class M:
+
+    def __init__(self, *args) -> None:
+        assert len(args) and (len(args) < 2)
+        self.key = str(args[0]).lower()
+        self.json_key = str(args[0])
+        self.csv_key = str(args[-1])
+
+    def __repr__(self):
+        return self.key
+
+    def __str__(self):
+        return self.key
+
+class Metric(enum.Enum):
+
+    @property
+    def csv_key(self):
+        return self.value.csv_key
+
+    @property
+    def json_key(self):
+        return self.value.json_key
+
+    @property
+    def key(self):
+        return self.value.key
+
+    PSNR        = M( "PSNR" )
+    PSNR_Y      = M( "YPSNR" )
+    PSNR_U      = M( "UPSNR" )
+    PSNR_V      = M( "VPSNR" )
+    MSSSIM      = M( "MS_SSIM" )
+    VMAF        = M( "VMAF" )
+    BITRATE     = M( "Bitrate" )
+    BITRATELOG  = M( "BitrateLog" )
+    ENCODETIME  = M( "EncodeTime" )
+    DECODETIME  = M( "DecodeTime" )
+
+    @classmethod
+    def json_dict(cls, v:'VariantMetricSet'):
+        j = { m.key: m.json_key for m in cls }
+        return { j[k]: v for (k, v) in v.items() }
+
+    @classmethod
+    def csv_dict(cls, v:'VariantMetricSet'):
+        c = { m.key: m.csv_key for m in cls }
+        return { c[k]: v for (k, v) in v.items() }
+
+
 class ReconstructionMeta:
     def __init__(self, decoder_id:str, reconstructed:Path, decoder_log:Path, md5=True):
         self.decoder_id = decoder_id
         self.reconstructed = reconstructed
         if md5:
+            print(f'computing md5 for {reconstructed}')
             self.reconstructed_md5 = md5_checksum(self.reconstructed)
         else:
             self.reconstructed_md5 = None
@@ -45,49 +96,72 @@ class ReconstructionMeta:
         }
 
 
-class VariantMetricSet2(dict):
+class VariantMetricSet(dict):
+
+    def compute_avg_psnr(self, strict=False):
+        try:
+            [Y, U, V] = [self.get(k.key) for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
+            psnr = ((6*Y)+U+V)/8
+            u = { Metric.PSNR.key: psnr }
+            self.update(u)
+            return psnr
+        except BaseException as e:
+            if strict:
+                raise
+            u = { Metric.PSNR.key: str(e) }
+            self.update(u)
+            return None
 
     __slots__ = ()
 
-    def __init__(self, mapping=(), **kwargs):
+    @classmethod
+    def _process_args(cls, mapping=(), **kwargs):
         if hasattr(mapping, 'items'):
             mapping = mapping.items()
-        args = [(to_lower(k), v) for k, v in chain(mapping, kwargs.items())]
-        super(VariantMetricSet2, self).__init__(*args)
+        d = {}
+        for K, v in chain(mapping, kwargs.items()):
+            k = to_lower(K)
+            d[k] = v
+        return d
+
+    def __init__(self, mapping=(), **kwargs):
+        args = self._process_args(mapping, **kwargs)
+        super(VariantMetricSet, self).__init__(args)
 
     def __getitem__(self, k):
-        return super(VariantMetricSet2, self).__getitem__(to_lower(k))
+        return super(VariantMetricSet, self).__getitem__(to_lower(k))
 
     def __setitem__(self, k, v):
-        return super(VariantMetricSet2, self).__setitem__(to_lower(k), v)
+        return super(VariantMetricSet, self).__setitem__(to_lower(k), v)
 
     def __delitem__(self, k):
-        return super(VariantMetricSet2, self).__delitem__(to_lower(k))
+        return super(VariantMetricSet, self).__delitem__(to_lower(k))
 
     def get(self, k, default=None):
-        return super(VariantMetricSet2, self).get(to_lower(k), default)
+        return super(VariantMetricSet, self).get(to_lower(k), default)
 
     def setdefault(self, k, default=None):
-        return super(VariantMetricSet2, self).setdefault(to_lower(k), default)
+        return super(VariantMetricSet, self).setdefault(to_lower(k), default)
 
     def pop(self, k, v):
-        return super(VariantMetricSet2, self).pop(to_lower(k), v)
+        return super(VariantMetricSet, self).pop(to_lower(k), v)
 
     def update(self, mapping=(), **kwargs):
-        super(VariantMetricSet2, self).update(self._process_args(mapping, **kwargs))
+        args = self._process_args(mapping, **kwargs)
+        super(VariantMetricSet, self).update(args)
 
     def __contains__(self, k):
-        return super(VariantMetricSet2, self).__contains__(to_lower(k))
+        return super(VariantMetricSet, self).__contains__(to_lower(k))
 
     def copy(self):
         return type(self)(self)
 
     @classmethod
     def fromkeys(cls, keys, v=None):
-        return super(VariantMetricSet2, cls).fromkeys((to_lower(k) for k in keys), v)
+        return super(VariantMetricSet, cls).fromkeys((to_lower(k) for k in keys), v)
 
     def __repr__(self):
-        return '{0}({1})'.format(type(self).__name__, super(VariantMetricSet2, self).__repr__())
+        return '{0}({1})'.format(type(self).__name__, super(VariantMetricSet, self).__repr__())
 
 
 def to_lower(maybe_str):
@@ -108,12 +182,14 @@ class VariantData:
             d = data.get("Metrics", None)
             metrics = None
             if d != None:
-                metrics = VariantMetricSet2()
+                metrics = VariantMetricSet()
                 for k, v in d.items():
                     try:
                         metrics[k] = float(v)
                     except BaseException:
                         metrics[k] = None
+                if Metric.PSNR.key not in metrics:
+                    metrics.compute_avg_psnr(strict=False)
             
             verification = data.get("Verification", None)
             contact = data.get("contact", None)
@@ -221,11 +297,11 @@ class VariantData:
     #######################################
 
     @property
-    def metrics(self) -> VariantMetricSet2:
+    def metrics(self) -> VariantMetricSet:
         return self._metrics
 
     @metrics.setter
-    def metrics(self, b:VariantMetricSet2):
+    def metrics(self, b:VariantMetricSet):
         self._metrics = b
 
 

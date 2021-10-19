@@ -1,4 +1,4 @@
-FROM python:buster
+FROM python:3.9-buster
 
 ARG HM_VERSION=tags/HM-16.22
 ARG SCM_VERSION=tags/HM-16.21+SCM-8.8
@@ -6,7 +6,7 @@ ARG VTM_VERSION=tags/VTM-11.0
 # tags/JM-19.0 is the last tag for JM, missing some build toolchain updates commits,
 # therefor the latest commit from master is referenced here.
 ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
-ARG HDRTOOLS_VERSION=tags/v0.22
+ARG HDRTOOLS_VERSION=tags/v0.23
 ARG VMAF_VERSION=tags/v2.1.1
 # VTM w/ HDRTOOLS extension: -DEXTENSION_HDRTOOLS=on
 ARG VTM_EXTENSION_HDRTOOLS
@@ -16,7 +16,8 @@ ARG HDRTOOLS_JM_PSNR
 RUN DEBIAN_FRONTEND=noninteractive \
   apt update && apt install --assume-yes --no-install-recommends \
     build-essential wget ca-certificates unzip \
-    cmake
+    cmake \
+    gfortran libopenblas-dev liblapack-dev
 
 WORKDIR /home/deps
 
@@ -80,8 +81,7 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
   cd ./vmaf && git checkout ${VMAF_VERSION} && \
   make
 ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
-ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform
-# ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmaf
+ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json
 ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmafossexec
 
 ## HM SCC extension ###
@@ -94,7 +94,6 @@ ENV SCM_ENCODER=/home/deps/SCM/bin/TAppEncoderStatic
 ENV SCM_DECODER=/home/deps/SCM/bin/TAppDecoderStatic
 
 ## ETM public repo ? ###
-
 ENV SEI_REMOVAL_APP=/home/deps/HM/bin/SEIRemovalAppStatic
 
 WORKDIR /home/5GVideo

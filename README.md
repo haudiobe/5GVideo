@@ -72,7 +72,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-install the dependencies:
+install the python dependencies:
 ```
 pip3 install -r requirements.txt
 ```
@@ -234,7 +234,7 @@ _____
 
 for a specific anchor:
 ```
-verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 bitstream 
+verify.py --scenario_dir /data/Bitstreams/Scenario-5/265 -k S5-A04-265 bitstream 
 ```
 
 for the entire scenario/codec:
@@ -246,7 +246,7 @@ verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 bitstream
 
 for a specific anchor:
 ```
-verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 decoder
+verify.py --scenario_dir /data/Bitstreams/Scenario-5/265 -k S5-A04-265 decoder
 ```
 
 for the entire scenario/codec:
@@ -303,7 +303,6 @@ compare.py /data/Bitstreams/Sequence3-Screen/265@S3-HM-01 /data/Bitstreams/Seque
 ```
 
 the result is found in `/data/Bitstreams/Sequence3-Screen/VTM/Metrics/s3-hm-01.s3-vtm-01.csv`
-
 
 
 _____

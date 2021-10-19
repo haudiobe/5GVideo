@@ -1,5 +1,5 @@
 #!/bin/sh
-storage=/media/akgrown/SG/5GVideoTests
+storage=/path/to/5GVideo
 tag=Scenario-3
 docker run -it \
     --mount type=bind,source=$storage,target=/data \
