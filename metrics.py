@@ -409,58 +409,36 @@ def sort_on_rates(rates, metric):
     return np.sort(rates), metric[np.argsort(rates)]
 
 
-def sanitize_rd_data2(rates, PSNR, step=0.001):
-    """- sort samples for increasing rates
-    - fix saturated values, by adding a step value"""
+def sanitize_rd_data(rates, dist, step=0.001):
+    """fixes saturated dist values by increasing sequence of equal values by the step value"""
     rate = np.array(rates)
-    dist = np.array(PSNR)
+    dist = np.array(dist)
     sorted = np.lexsort((rate, dist))
     rate = rate[sorted]
     dist = dist[sorted]
-    dist_max = dist[-1]
-    dist_fix = np.array([], dtype=np.float64)
-    step = 0.001
-    fix = 0.001
+    dist_fix = []
+    sanitized = False
     for i, _ in enumerate(rate):
         d = dist[i]
-        if d == dist_max:
-            d += fix
-            fix += step
+        if i and (d == dist[i-1]):
+            d = dist_fix[-1] + step
+            sanitized = True
+        elif i and (d > dist[i-1]) and (d <= dist_fix[-1]):
+            d = dist_fix[-1] + step
+            sanitized = True
         dist_fix.append(d)
-    return rate, dist_fix
-
-
-def sanitize_rd_data1(rates, PSNR, preserve_last_sample=True):
-    """- sort samples for increasing rates
-    - drop samples on non increasing dist values"""
-    rate = np.array(rates)
-    dist = np.array(PSNR)
-    sorted = np.lexsort((rate, dist))
-    rate = rate[sorted]
-    dist = dist[sorted]
-    _sorted = []
-    for i, r in enumerate(rate):
-        d = dist[i]
-        if len(_sorted):
-            p = _sorted[-1]
-            if (d <= p[1]):
-                print(f'/!\ rate increased, but quality did not - dropping sample ( r:{r}, d:{d} ) !')
-                # keep the last sample on saturated values, drop the previous one
-                # if preserve_last_sample and (len(rate) == (i+1)):
-                #     dist.pop()
-                # else:
-                #     continue
-                continue
-        _sorted.append((r, d))
-    return [np.array(arr) for arr in zip(*_sorted)]
-
+    if sanitized:
+        print("/!\ data has been sanitized:")
+        print(f" -  replaced: {dist}")
+        print(f" -  with    : {dist_fix}")
+    return rate, np.array(dist_fix, dtype=np.float64)
 
 
 def BD_RATE(R1, PSNR1, R2, PSNR2, piecewise=1, sanitize=False) -> float:
 
     if sanitize:
-        R1, PSNR1 = sanitize_rd_data1(R1, PSNR1)
-        R2, PSNR2 = sanitize_rd_data1(R2, PSNR2)
+        R1, PSNR1 = sanitize_rd_data(R1, PSNR1)
+        R2, PSNR2 = sanitize_rd_data(R2, PSNR2)
     else:
         PSNR1 = np.array(PSNR1)
         PSNR2 = np.array(PSNR2)
