@@ -264,6 +264,13 @@ def strictly_increasing(samples):
     return True
 
 def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dist"):
+    
+    """
+    adapted from https://github.com/Anserw/Bjontegaard_metric
+    which computes bd-rate according to:
+        [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33) 
+        [2] S. Pateux, J. Jung, An excel add-in for computing Bjontegaard metric and its evolution
+    """
 
     if sanitize:
         R1, DIST1 = sanitize_rd_data(R1, DIST1)
