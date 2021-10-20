@@ -110,11 +110,11 @@ def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str]
     fig = None
     for key in metrics:
         try:
-            plot_title = f'RD-curve & BD-rate for {key}\n'\
-                f'[sequence] {aref.reference.sequence["Key"]} | {aref.reference.sequence["Name"]}\n'\
-                f'[anchor] {aref.encoder_cfg.name} @ {aref._variants}\n'\
-                f'[test] {atest.encoder_cfg.name} @ {atest._variants}'
-            fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize, title=plot_title)
+            # plot_title = f'RD-curve & BD-rate for {key}\n'\
+            #     f'[sequence] {aref.reference.sequence["Key"]} | {aref.reference.sequence["Name"]}\n'\
+            #     f'[anchor] {aref.encoder_cfg.name} @ {aref._variants}\n'\
+            #     f'[test] {atest.encoder_cfg.name} @ {atest._variants}'
+            fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize, title=None)
             vms[key] = f'{round(bd, 3):.3f}'
             if plots and (key in plots):
                 # t = f'bd-rate @{key} | {vms[key]}'
@@ -305,15 +305,14 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
         avg_exp_diff = (int2-int1)/(max_int-min_int)
         avg_diff = (np.exp(avg_exp_diff)-1) * -100
 
-        # plot it
-        fig, axs = plt.subplots(2, 1, figsize=(10, 20))
+        fig, axs = plt.subplots(1, 2, figsize=(20, 12))
 
         axs[0].plot(R1, DIST1, 'o-', R2, DIST2, 'o-')
         axs[0].set_xlabel('bitrate', fontsize=21)
-        axs[0].set_ylabel(dist_label, fontsize=21)
+        axs[0].set_ylabel('quality', fontsize=21)
         axs[0].grid(True)
         axs[0].tick_params(axis='both', which='major', labelsize=21)
-        axs[0].set_title('RD curve', fontdict={'fontsize': 24, 'fontweight': 'medium'})
+        axs[0].set_title('Rate-Quality Curve', fontdict={'fontsize': 21, 'fontweight': 'medium'})
         axs[0].legend(['anchor', 'test'])
         axs[0].axhline(min_int, linestyle='dashed', color='red')
         axs[0].axhline(max_int, linestyle='dashed', color='red')
@@ -325,15 +324,16 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
         
         axs[1].legend()
         axs[1].set_xlabel('bitrate (log)', fontsize=21)
-        axs[1].set_ylabel('dist', fontsize=21)
+        axs[1].set_ylabel(f'quality', fontsize=21)
         axs[1].grid(True)
         axs[1].tick_params(axis='both', which='major', labelsize=21)
-        axs[1].set_title(f'BD rate: {avg_diff:.3f}', fontdict={'fontsize': 24, 'fontweight': 'medium'})
+        axs[1].set_title(f'BD rate gain: {avg_diff:.3f}', fontdict={'fontsize': 21, 'fontweight': 'medium'})
         axs[1].axhline(min_int, linestyle='dashed', color='red')
         axs[1].axhline(max_int, linestyle='dashed', color='red')
+        axs[1].fill_betweenx(samples, v1, v2, color='red', alpha=0.25)
 
         if title and title != "":
-            fig.suptitle(title, fontsize=16)
+            fig.suptitle(title, fontsize=21)
 
     except ValueError as ve:
         print(ve)
