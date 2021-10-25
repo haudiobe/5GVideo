@@ -1,29 +1,29 @@
-#!.venv/bin/python3
+import sys
+import asyncio
+import functools
 
-import argparse, re, sys, json, threading, time, asyncio, functools
 from pathlib import Path
-from encoders import parse_encoding_bitdepth
 
-from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants, iter_ref_locations
-from typing import Tuple, List, Iterable, Callable, Dict
+from anchor import AnchorTupleCtx, VariantData, iter_variants, iter_ref_locations
+from typing import Any, List
 from utils import VideoSequence
 import requests
 
-from concurrent.futures import ThreadPoolExecutor, Future
-from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 
 import logging
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 
 dl_executor = ThreadPoolExecutor(max_workers=10)
-dl_errors = []
+dl_errors: List[BaseException] = []
 dl_count = 0
 dl_complete = 0
 dl_skipped = 0
 dl_overwrite = True
-dl_file_changed = []
+dl_file_changed: List[str] = []
 
-tasks = []
+tasks: List[asyncio.Task] = []
+
 
 async def dl_print_status():
     global tasks
@@ -39,118 +39,19 @@ async def dl_print_status():
         await asyncio.sleep(0)
 
 
-class AnchorTupleCtx:
-
-    @classmethod
-    def parse_args(cls, parser:argparse.ArgumentParser=None, scenario_dir=None, ) -> 'AnchorTupleCtx':
-        if parser == None:
-            parser = argparse.ArgumentParser()
-        parser.add_argument('--scenario_dir', required=True, default=None, type=str, help='scenario directory, eg. Scenario-3-Screen/265')
-        parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
-        parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
-        parser.add_argument('-s','--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
-        parser.add_argument('--sequences_dir', required=False, type=str, help='the directory containing the reference sequences')
-        parser.add_argument('--dry-run', action='store_true', default=False)
-        parser.add_argument('--dl-streams', action='store_true', default=False, help='download streams')
-        parser.add_argument('--dl-ref-sequences', action='store_true', default=False, help='download reference sequences')
-        cli_args = parser.parse_args()
-        return cls(cli_args=cli_args)
-
-    @classmethod
-    def from_anchor_directory(cls, ad:Path) -> Tuple['AnchorTupleCtx', str]:
-        assert ad.is_dir(), f'invalid directory: {ad}'
-        ad = ad.resolve()
-        return cls(scenario_dir=ad.parent), ad.name
-
-    @classmethod
-    def from_encoder_directory(cls, ad:Path) -> Tuple['AnchorTupleCtx', str]:
-        assert ad.is_dir(), f'invalid directory: {ad}'
-        ad = ad.resolve()
-        return cls(scenario_dir=ad.parent), ad.name
-
-
-    def __init__(self, cli_args=None, **kwargs):
-        
-        if cli_args:
-            scenario_dir = Path(cli_args.scenario_dir)
-            if not scenario_dir.exists():
-                scenario_dir.mkdir(parents=True)
-            
-            references_csv = scenario_dir / Path(cli_args.sequences_list)
-            if not references_csv.exists():
-                logging.info(f'reference-sequence.csv not found {references_csv}')
-
-            anchors_csv = scenario_dir / cli_args.anchors_list
-            if not anchors_csv.exists():
-                logging.info(f'streams.csv list not found {anchors_csv}')
-                        
-            sequences_dir = scenario_dir / '../../../ReferenceSequences'
-            if cli_args.sequences_dir != None:
-                sequences_dir = Path(cli_args.sequences_dir).resolve()
-                assert sequences_dir.is_dir(), f'invalid sequence directory {sequences_dir}'
-
-            self.scenario_dir = scenario_dir
-            self.anchors_csv = anchors_csv
-            self.references_csv = references_csv
-            self.sequences_dir = sequences_dir
-            self.dry_run = cli_args.dry_run
-
-            self.dl_streams = cli_args.dl_streams
-            self.dl_ref_sequences = not self.dl_streams
-            self.key = cli_args.key
-
-        else:
-            self.scenario_dir = Path(kwargs['scenario_dir'])
-            if 'anchors_csv' in kwargs:
-                self.anchors_csv = kwargs['anchors_csv']
-            else:
-                self.anchors_csv = self.scenario_dir / 'streams.csv'
-
-            if 'references_csv' in kwargs:
-                self.references_csv = kwargs['references_csv']
-            else:
-                self.references_csv = self.scenario_dir.parent / 'reference-sequence.csv'
-
-            if 'sequences_dir' in kwargs:
-                self.sequences_dir = kwargs['sequences_dir']
-            else:
-                self.sequences_dir = self.base_dir() / 'ReferenceSequences'
-
-            if 'metrics_dir' in kwargs:
-                self.metrics_dir = kwargs['metrics_dir']
-            else:
-                self.metrics_dir = self.scenario_dir / 'Metrics'
-
-            if 'dry_run' in kwargs:
-                self.dry_run = bool(kwargs['dry_run'])
-            else:
-                self.dry_run = False
-
-    def base_dir(self) -> Path:
-        # scenario_dir is $base_dir/Bitstreams/$scenario/$codec/
-        return self.scenario_dir.parent.parent.parent
-
-    def iter_ref_sequences(self) -> Tuple[str, VideoSequence]:
-        for key, video_sequence in reference_sequences_dict(self.references_csv, self.sequences_dir).items():
-            yield key, video_sequence
-    
-    def iter_anchors(self, keys:List[str]=None, cfg_keys:List[str]=None) -> Iterable[AnchorTuple]:
-        if (keys == None) and hasattr(self, "key"):
-            keys = [self.key]
-        refs = reference_sequences_dict(self.references_csv, self.sequences_dir)
-        return iter_anchors(self.anchors_csv, refs, self.scenario_dir, keys=keys, cfg_keys=cfg_keys)
-
-def bytesize_match(local:Path, remote:str):
+def bytesize_match(local: Path, remote: str):
     r = requests.head(remote, allow_redirects=True)
     size = r.headers.get('content-length', -1)
     return int(size) == local.stat().st_size
+
 
 def noop(*args, **kwargs):
     global dl_count, dl_skipped
     dl_count += 1
     dl_skipped += 1
 
-def download_file(url:str, local_filename:Path, chunk_size=8192) -> BaseException:
+
+def download_file(url: str, local_filename: Path, chunk_size=8192) -> Any:
     try:
         # logging.info(f'[downloading] {url}')
         global dl_count, dl_complete
@@ -162,13 +63,12 @@ def download_file(url:str, local_filename:Path, chunk_size=8192) -> BaseExceptio
                 for chunk in r.iter_content(chunk_size=chunk_size): 
                     f.write(chunk)
             dl_complete += 1
-        # logging.info(f'[complete] {url}')
     except BaseException as e:
         dl_errors.append(e)
         return e
 
 
-async def dl_if_not_exists(target:str, base_dir:Path, base_uri:str, overwrite=False, dry_run=False):
+async def dl_if_not_exists(target: str, base_dir: Path, base_uri: str, overwrite=False, dry_run=False):
     global dl_executor
     loop = asyncio.get_running_loop()
     local = base_dir / target
@@ -176,7 +76,7 @@ async def dl_if_not_exists(target:str, base_dir:Path, base_uri:str, overwrite=Fa
     exists = local.exists()
     task = download_file
     if exists and bytesize_match(local, remote):
-        logging.info(f'[ok  ] {target}')
+        logging.info(f'[ok ] {target}')
         task = noop
     else:
         dl_file_changed.append(target)
@@ -186,31 +86,32 @@ async def dl_if_not_exists(target:str, base_dir:Path, base_uri:str, overwrite=Fa
     return err
 
 
-def bitstream_uri(p:Path) -> str:
+def bitstream_uri(p: Path) -> Path:
     if p.exists():
-        return p.parent / VariantData.load( p ).bitstream['URI']
+        return p.parent / VariantData.load(p).bitstream['URI']
+    else:
+        raise FileNotFoundError(p)
 
 
-async def dl_variant(variant:Path, base_dir:Path, base_uri:str, overwrite=False, dry_run=False) -> BaseException:
+async def dl_variant(variant: Path, base_dir: Path, base_uri: str, overwrite=False, dry_run=False) -> Any:
     err = await dl_if_not_exists(
-            str(variant.relative_to(base_dir)), 
-            base_dir, 
-            base_uri, 
-            overwrite=overwrite, 
-            dry_run=dry_run
-        )
+        str(variant.relative_to(base_dir)), 
+        base_dir, 
+        base_uri, 
+        overwrite=overwrite, 
+        dry_run=dry_run)
     if not err:
-        err = await dl_if_not_exists(
-                str(bitstream_uri(variant).relative_to(base_dir)), 
-                base_dir, 
-                base_uri, 
-                overwrite=overwrite, 
-                dry_run=dry_run
-            )
+        # err = await dl_if_not_exists(
+        #     str(bitstream_uri(variant).relative_to(base_dir)), 
+        #     base_dir, 
+        #     base_uri, 
+        #     overwrite=overwrite, 
+        #     dry_run=dry_run)
+        return None
     return err
 
 
-async def download_variant_data(ctx:AnchorTupleCtx, base_uri:str):
+async def download_variant_data(ctx: AnchorTupleCtx, base_uri: str):
 
     base_dir = ctx.base_dir()
     dl_all_data = []
@@ -230,20 +131,20 @@ async def download_variant_data(ctx:AnchorTupleCtx, base_uri:str):
             base_dir, 
             base_uri, 
             overwrite=dl_overwrite, 
-            dry_run=ctx.dry_run )
+            dry_run=ctx.dry_run)
         dl_all_data.append(pending)
 
         # variant bitstreams
         for variant_path, _ in iter_variants(a):
-            if ctx.dry_run and not variant.exists():
+            if ctx.dry_run and not variant_path.exists():
                 continue
             pending = dl_variant(variant_path, base_dir, base_uri, overwrite=dl_overwrite, dry_run=ctx.dry_run)
             dl_all_data.append(pending)
 
-    await asyncio.gather( *dl_all_data )
+    await asyncio.gather(*dl_all_data)
 
 
-async def download_scenario_streams(scenario:str, codecs:List[str], local:Path, remote:str, dry_run=False):
+async def download_scenario_streams(scenario: str, codecs: List[str], local: Path, remote: str, dry_run=False):
 
     async def dl_codec(codec):
         scenario_codec_dir = f'Bitstreams/{scenario}/{codec}/' 
@@ -257,23 +158,24 @@ async def download_scenario_streams(scenario:str, codecs:List[str], local:Path, 
         )
         if not err:
             if dry_run and not (local / streams).exists():
-                logging.info(f'\t\'streams.csv\' not downloaded - processing individual streams is disabled')
+                logging.info('\t\'streams.csv\' not downloaded - processing individual streams is disabled')
             else:
-                ctx = AnchorTupleCtx(scenario_dir=local/scenario_codec_dir, dry_run=dry_run)
+                ctx = AnchorTupleCtx(scenario_dir=local / scenario_codec_dir, dry_run=dry_run)
                 await download_variant_data(ctx, remote)
 
     await asyncio.gather(*[dl_codec(c) for c in codecs])
 
 
-async def download_reference_sequence(meta_location:str, base_dir:Path, base_uri:str, overwrite=False, dry_run=True):
+async def download_reference_sequence(meta_location: str, base_dir: Path, base_uri: str, overwrite=False, dry_run=True):
     err = await dl_if_not_exists(meta_location, base_dir, base_uri, overwrite=overwrite, dry_run=dry_run)
     if not err:
-        vs = VideoSequence.from_sidecar_metadata( base_dir / meta_location )
+        vs = VideoSequence.from_sidecar_metadata(base_dir / meta_location)
         stem = vs.path.stem
         sequence_location = f'ReferenceSequences/{vs.path.parent.stem}/{stem}{vs.path.suffix}'
         await dl_if_not_exists(sequence_location, base_dir, base_uri, overwrite=overwrite, dry_run=dry_run)
 
-async def download_reference_sequences(scenario:str, base_dir:Path, base_uri:str, dry_run=False):
+
+async def download_reference_sequences(scenario: str, base_dir: Path, base_uri: str, dry_run=False):
 
     reference_sequences_csv = f'Bitstreams/{scenario}/reference-sequence.csv'
     
@@ -286,17 +188,18 @@ async def download_reference_sequences(scenario:str, base_dir:Path, base_uri:str
     )
 
     if dry_run and not (base_dir / reference_sequences_csv).exists():
-        logging.info(f'\t\'reference-sequence.csv\' not downloaded - processing individual sequences is disabled')
+        logging.info('\t\'reference-sequence.csv\' not downloaded - processing individual sequences is disabled')
     
     else:
         dl_all_sequences = []
         
-        for meta in iter_ref_locations(base_dir/reference_sequences_csv):
-            meta_location =  f'ReferenceSequences/{meta}'
+        for meta in iter_ref_locations(base_dir / reference_sequences_csv):
+            meta_location = f'ReferenceSequences/{meta}'
             pending = download_reference_sequence(meta_location, base_dir, base_uri, overwrite=dl_overwrite, dry_run=dry_run)
             dl_all_sequences.append(pending)
         
-        await asyncio.gather( *dl_all_sequences )
+        await asyncio.gather(*dl_all_sequences)
+
 
 async def main():
 

@@ -6,81 +6,80 @@ import os
 import json
 import csv
 import math
-import functools
-import copy
-import shlex
-
-import numpy as np
-from numpy.polynomial import Polynomial, polynomial as P
-import scipy.interpolate
 
 from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, iter_variants
 from utils import run_process
 from encoders import get_encoder, parse_encoding_bitdepth, parse_variant_qp
-from convert import as_10bit_sequence, as_8bit_sequence
-from enum import Enum
+from convert import as_10bit_sequence
 
-from typing import List, Dict, Generator, Iterable
 
 class VideoFormatException(BaseException):
     pass
 
+
 SDR_METRICS = (
-        Metric.BITRATELOG,
-        Metric.BITRATE,
-        Metric.PSNR_Y,
-        Metric.PSNR_U,
-        Metric.PSNR_V,
-        Metric.PSNR,
-        Metric.MSSSIM, 
-        Metric.VMAF,
-        Metric.ENCODETIME,
-        Metric.DECODETIME
+    Metric.BITRATELOG,
+    Metric.BITRATE,
+    Metric.PSNR_Y,
+    Metric.PSNR_U,
+    Metric.PSNR_V,
+    Metric.PSNR,
+    Metric.MSSSIM, 
+    Metric.VMAF,
+    Metric.ENCODETIME,
+    Metric.DECODETIME
 )
 
 
-################################################################################
-
-def iter_section(f:io.FileIO, esc="-", eof_raises=True):
-    l = f.readline()
-    while len(l) > 0:
-        if l[0] == esc:
+def iter_section(f: io.FileIO, esc="-", eof_raises=True):
+    line = f.readline()
+    while len(line) > 0:
+        if line[0] == esc:
             return
-        yield l
-        l = f.readline()
+        yield line
+        line = f.readline()
     assert not eof_raises, 'parser error: unexpected end of file'
 
+
 def read_meta(f):
-    l = f.readline()
+    line = f.readline()
     # prints out command line options
     meta = [*iter_section(f, esc="=")]
     # prints out input sequences' descriptions
     meta += [*iter_section(f, esc="=")]
-    l = f.readline()
-    assert len(l) > 0 and l[0] == '-', 'failed to parse header'
+    line = f.readline()
+    assert len(line) > 0 and line[0] == '-', 'failed to parse header'
     return meta
+
 
 def read_log(f, stats={}):
     stats['meta'] = read_meta(f)
-    stats['metrics'] = [l.split() for l in iter_section(f)][0]
-    stats['frames'] = [l.split() for l in iter_section(f)]
-    stats['avg'] = [l.split() for l in iter_section(f)][0]
-    amplitude = [l.split() for l in iter_section(f)]
+    stats['metrics'] = [line.split() for line in iter_section(f)][0]
+    stats['frames'] = [line.split() for line in iter_section(f)]
+    stats['avg'] = [line.split() for line in iter_section(f)][0]
+    amplitude = [line.split() for line in iter_section(f)]
     stats['min'] = amplitude[0]
     stats['max'] = amplitude[1]
     # stats['perfs'] = "".join([*iter_section(f)])
     return stats
+
 
 def parse_metrics(log):
     raw_data = None
     p = Path(log).resolve()
     with open(p, 'r') as f:
         raw_data = read_log(f)
-    assert raw_data != None, f'failed to parse {p}'
-    parse_hex = lambda indices, values: [struct.unpack('!d', bytes.fromhex(values[i]))[0] for i in indices]
-    parse_frames = lambda indices, frames: [[f[0], *parse_hex(indices, f)] for f in frames]
+    
+    assert raw_data is not None, f'failed to parse {p}'
+    
+    def parse_hex(indices, values): 
+        return [struct.unpack('!d', bytes.fromhex(values[i]))[0] for i in indices]
+    
+    def parse_frames(indices, frames):
+        return [[f[0], *parse_hex(indices, f)] for f in frames]
+    
     indices, metrics = zip(*[(i, h[3:]) for i, h in enumerate(raw_data['metrics']) if str(h).startswith('hex')])
     return {
         'metrics': metrics,
@@ -90,7 +89,8 @@ def parse_metrics(log):
         'frames': [['frame', *metrics], *parse_frames(indices, raw_data['frames'])]
     }
 
-def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
+
+def hdrtools_input(v: VideoSequence, ref=True, file_header=0):
     i = 0 if ref else 1
     opts = [
         '-p', f'Input{i}File={v.path}',
@@ -102,8 +102,8 @@ def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
         '-p', f'Input{i}StartFrame={v.start_frame-1}',
         '-p', f'Input{i}FileHeader={file_header}',
         '-p', f'Input{i}Rate={v.frame_rate}',
-        '-p', f'Input{i}SampleRange=0', # SR_STANDARD is HDRMetrics' default, (16-235)*k
-        # '-p', f'Input{i}FourCCCode={0}' # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
+        '-p', f'Input{i}SampleRange=0',  # SR_STANDARD is HDRMetrics' default, (16-235)*k
+        # '-p', f'Input{i}FourCCCode={0}'  # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
     ]
     
     if v.interleaved:
@@ -117,9 +117,9 @@ def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
         opts += ['-p', f'Input{i}Interlaced=0']
 
     if v.chroma_format == ChromaFormat.YUV:
-        opts += ['-p', f'Input{i}ColorSpace=0'] # 0:CM_YCbCr
+        opts += ['-p', f'Input{i}ColorSpace=0']  # 0:CM_YCbCr
     elif v.chroma_format == ChromaFormat.RGB:
-        opts += ['-p', f'Input{i}ColorSpace=1'] # 1:CM_RGB
+        opts += ['-p', f'Input{i}ColorSpace=1']  # 1:CM_RGB
     else:
         # out of scope
         raise ValueError('Unexpected color space')
@@ -141,7 +141,7 @@ def hdrtools_input(v:VideoSequence, ref=True, file_header=0):
     return opts
 
 
-def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:Path=None) -> dict:
+def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, dry_run=False, cfg: Path = None) -> dict:
 
     # PQ content metrics to be parsed from VTM encoder log
     assert ref.transfer_characteristics != TransferFunction.BT2020_PQ, f'unsupported transfer function, {TransferFunction.BT2020_PQ}'
@@ -151,14 +151,14 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
     input1 = hdrtools_input(dist, ref=False)
     run = ['-f', str(cfg)] if cfg else []
     run += [
-        '-p', f'EnablehexMetric=1', # the parser collects hex values only
-        '-p', f'EnableJVETPSNR=1',
-        '-p', f'EnableShowMSE=1',
-        '-p', f'EnablePSNR=1',
-        # '-p', f'EnableSSIM=1',
-        # '-p', f'EnableMSSSIM=1',
-        '-p', f'SilentMode=0',
-        '-p', f'NumberOfFrames={dist.frame_count}'
+        '-p', 'EnablehexMetric=1',  # the parser collects hex values only
+        '-p', 'EnableJVETPSNR=1',
+        '-p', 'EnableShowMSE=1',
+        '-p', 'EnablePSNR=1',
+        # '-p', 'EnableSSIM=1',
+        # '-p', 'EnableMSSSIM=1',
+        '-p', 'SilentMode=0',
+        '-p', 'NumberOfFrames={dist.frame_count}'
     ]
 
     distortion_log = dist.path.with_suffix('.distortion.txt')
@@ -178,10 +178,10 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
         }
 
     data = parse_metrics(log)
-    metrics = { k:v for k,v in zip(data['metrics'], data['avg']) }
+    metrics = {k: v for k, v in zip(data['metrics'], data['avg'])}
 
     if ref.chroma_format == ChromaFormat.YUV:
-        (y,u,v) = (metrics["PSNR-Y"], metrics["PSNR-U"], metrics["PSNR-V"])
+        (y, u, v) = (metrics["PSNR-Y"], metrics["PSNR-U"], metrics["PSNR-V"])
         log_msssim = metrics["JMSSSIM-Y"]
         return {
             Metric.PSNR_Y.key: y,
@@ -192,16 +192,15 @@ def hdrtools_metrics(ref:VideoSequence, dist:VideoSequence, dry_run=False, cfg:P
     else:
         return metrics
 
-################################################################################
 
-def bitstream_size(bitstream:Path, drop_sei=False) -> int:
+def bitstream_size(bitstream: Path, drop_sei=False) -> int:
     tmp = None
     if drop_sei:
         # expecting SEIRemovalAppStatic built from HM16.23
         tool = os.getenv('SEI_REMOVAL_APP')
         assert tool, 'missing env variable: SEI_REMOVAL_APP'
         tmp = bitstream.with_suffix('.tmp')
-        cmd = [ tool, '-b', str(bitstream), '-o', str(tmp), f'--DiscardPrefixSEI=1', f'--DiscardSuffixSEI=1' ]
+        cmd = [tool, '-b', str(bitstream), '-o', str(tmp), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
         log = bitstream.with_suffix('.seiremoval.log')
         run_process(log, *cmd, dry_run=False)
     s = int(os.path.getsize(tmp if tmp else bitstream))
@@ -210,9 +209,8 @@ def bitstream_size(bitstream:Path, drop_sei=False) -> int:
         os.remove(log)
     return s
 
-################################################################################
 
-def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6.1", dry_run=False):
+def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0.6.1", dry_run=False):
     # VMAF may not support skipping frames at the beginning of input sequences
     output = dist.path.with_suffix('.vmaf.json')
     log = dist.path.with_suffix('.vmaf.log')
@@ -228,10 +226,10 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
         "-b", f'{ref.bit_depth}',
         "--json", "-o", str(output),
         "-m", model
-    ]
+   ]
     """
-    print(f'[{ref.bit_depth}\tbits]::', ref.path.name)
-    print(f'[{dist.bit_depth}\tbits]::', dist.path.name)
+    print(f'[{ref.bit_depth}\tbits]:: ', ref.path.name)
+    print(f'[{dist.bit_depth}\tbits]:: ', dist.path.name)
     try:
         assert not dist.interlaced and not ref.interlaced
         assert not dist.interleaved and not ref.interleaved
@@ -272,13 +270,11 @@ def vmaf_metrics(ref:VideoSequence, dist:VideoSequence, model="version=vmaf_v0.6
         return None
 
 
-################################################################################
-
-def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir:Path=None) -> VariantMetricSet:
+def compute_metrics(a: AnchorTuple, vd: VariantData, vmaf=True, encoder_log=True, decoder_log=False, preprocessed=True, dist_dir: Path = None) -> VariantMetricSet:
     print('compute_metrics()')
     # check if a pre-conversion step is needed, 
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if dist_dir == None:
+    if dist_dir is None:
         dist_dir = a.working_dir
     if not preprocessed:
         ref = a.reference
@@ -305,7 +301,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
         metrics[Metric.PSNR_Y.key] = None
         metrics[Metric.PSNR_U.key] = None
         metrics[Metric.PSNR_V.key] = None
-        metrics[Metric.PSNR.key]   = None
+        metrics[Metric.PSNR.key] = None
         metrics[Metric.MSSSIM.key] = None
         
     if os.getenv('DISABLE_VMAF'):
@@ -352,7 +348,7 @@ def compute_metrics(a:AnchorTuple, vd:VariantData, vmaf=True, encoder_log=True, 
     return metrics
 
 
-def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
+def anchor_metrics_to_csv(a: AnchorTuple, dst: Path = None):
     fieldnames = None
     for variant_path, variant_data in iter_variants(a):
         assert variant_path.exists(), f'{variant_path} not found'
@@ -360,7 +356,7 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
         if not fieldnames:
             fieldnames = ["parameter", *variant_data.metrics.keys()]
 
-    if dst == None:
+    if dst is None:
         dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
     if not dst.parent.exists():
         dst.parent.mkdir(parents=True)
@@ -377,17 +373,16 @@ def anchor_metrics_to_csv(a:AnchorTuple, dst:Path=None):
             writer.writerow(row)
 
 
-################################################################################
-
-def compute_avg_psnr(vd:VariantData):
+def compute_avg_psnr(vd: VariantData):
     try:
         if 'psnr' not in vd.metrics:
             [Y, U, V] = [vd.metrics[k.key] for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
-        vd.metrics[Metric.PSNR.key] = ((6*Y)+U+V)/8
+        vd.metrics[Metric.PSNR.key] = ((6 * Y) + U + V) / 8
     except BaseException as e:
         vd.metrics[Metric.PSNR.key] = str(e)
 
-def compute_log_msssim(vd:VariantData):
+
+def compute_log_msssim(vd: VariantData):
     try:
         inv = 1 - vd.metrics[Metric.MSSSIM.key]
         vd.metrics[Metric.MSSSIM.key] = -math.inf if inv == 0 else -10.0 * math.log10(inv)

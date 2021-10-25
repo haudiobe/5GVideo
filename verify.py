@@ -1,7 +1,6 @@
 #!.venv/bin/python3
 
 import argparse
-from os import close, error, replace
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone 
@@ -9,7 +8,6 @@ from enum import Enum
 import math
 import json
 from csv import DictWriter
-import copy
 
 from typing import Any, List, Iterable, Tuple
 
@@ -18,17 +16,20 @@ from encoders import get_encoder, parse_encoding_bitdepth
 from metrics import SDR_METRICS, Metric, compute_metrics, anchor_metrics_to_csv
 from convert import as_10bit_sequence
 
-DEBUG_FIRST_VARIANT_ONLY=False 
-DEBUG_SKIP_VMAF=False
+
+DEBUG_FIRST_VARIANT_ONLY = False 
+DEBUG_SKIP_VMAF = False
+
 
 class AnchorVerificationCmd(Enum):
     REPORT = -1
     BITSTREAM = 1
     DECODER = 2
 
+
 class AnchorVerificationReport:
-    
-    CSV_FIELDNAMES = [ "key", "file", "origdate", "md5", "status", "company", "e-mail", "vdate", "document", "type", "information" ]
+
+    CSV_FIELDNAMES = ["key", "file", "origdate", "md5", "status", "company", "e-mail", "vdate", "document", "type", "information"]
 
     @classmethod
     def from_json_dict(cls, report):
@@ -56,34 +57,33 @@ class AnchorVerificationReport:
             dw.writeheader()
         return dw
 
-    def to_csv_dict(self, vf:Path, vd:VariantData, template:"AnchorVerificationReport"=None):
+    def to_csv_dict(self, vf: Path, vd: VariantData, template: "AnchorVerificationReport" = None):
         row = {
-            "key":vd.variant_id,
-            "file":str(vf),
-            "origdate":vd.bitstream["date"],
-            "md5":vd.bitstream["md5"],
-            "status":self.status,
-            "company":self.contact_company,
-            "e-mail":self.contact_e_mail,
-            "vdate":self.verification_date,
-            "document":self.input_doc,
-            "type":self.type,
-            "information":self.information
+            "key": vd.variant_id,
+            "file": str(vf),
+            "origdate": vd.bitstream["date"],
+            "md5": vd.bitstream["md5"],
+            "status": self.status,
+            "company": self.contact_company,
+            "e-mail": self.contact_e_mail,
+            "vdate": self.verification_date,
+            "document": self.input_doc,
+            "type": self.type,
+            "information": self.information
         }
-        if template != None:
+        if template is not None:
             row["company"] = template.contact_company
             row["e-mail"] = template.contact_e_mail
             row["document"] = template.input_doc
         return row
 
 
+def save_verification_report(vf: Path, vd: VariantData, verification_type: AnchorVerificationCmd, success: bool, log_data: List[str] = None, template: dict = None):
 
-def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVerificationCmd, success:bool, log_data:List[str]=None, template:dict=None):
-    
     report = template
     ts = datetime.now(timezone.utc)
 
-    if report == None:
+    if report is None:
         report = {
             "Contact": {
                 "Company": "",
@@ -96,14 +96,14 @@ def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVe
         }
 
     if not success:
-        assert (log_data != None) and (log_data != '')
+        assert (log_data is not None) and (log_data != '')
         report["status"] = "failed"
     else:
         report["status"] = "successful"
 
-    if vd.verification == None:
-        vd.verification = { "Reports": [] }
-    elif not "Reports" in vd.verification:
+    if vd.verification is None:
+        vd.verification = {"Reports": []}
+    elif "Reports" not in vd.verification:
         vd.verification["Reports"] = []
     
     idx = len(vd.verification["Reports"])
@@ -126,14 +126,8 @@ def save_verification_report(vf:Path, vd:VariantData, verification_type:AnchorVe
     vd.save_as(vf)
 
 
-
-#########################################################################################################
-
-
-
-def decoder_verification_preflight(a:AnchorTuple):
-    """
-    verifies that:
+def decoder_verification_preflight(a: AnchorTuple):
+    """verifies that:
         * all variant bitstreams exists
         * all bitstreams md5 match their json description
         * has expected metric set
@@ -142,15 +136,15 @@ def decoder_verification_preflight(a:AnchorTuple):
     for vf, vd in iter_variants(a):
         try:
             _ = a.locate_bitstream(vd, md5_check=True)
-            vd.has_metric_set( SDR_METRICS )
+            vd.has_metric_set(SDR_METRICS)
         except BaseException as e:
-            if err == None:
+            if err is None:
                 err = []
             err.append((vf, vd, e))
     return err
 
 
-def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True, reconstrution_md5=False) -> Tuple[bool, str]:
+def verify_variant_metrics(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir: Path = None, debug=True, reconstrution_md5=False) -> Tuple[bool, str]:
     """
     1. decode into a temporary folder
     2. compute metrics with freshly decoded data
@@ -160,7 +154,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
     if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
         assert as_10bit_sequence(a.reference).path.exists()
-    assert vd.metrics != None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
+    assert vd.metrics is not None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
 
     log = [f'= {vd.variant_id} | decoder verification =====\n']
     success = True
@@ -169,7 +163,7 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
     dec = get_encoder(enc_id)
 
-    if tmp_dir == None:
+    if tmp_dir is None:
         tmp = vf.parent.with_suffix('.tmp')
     else:
         tmp = tmp_dir / vf.parent.with_suffix('.tmp').name
@@ -207,12 +201,12 @@ def verify_variant_metrics(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=
     return success, log
 
 
-def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) -> Iterable[Iterable[str]]:
+def verify_anchor_metrics(a: AnchorTuple, template: dict = None, tmp_dir: Path = None) -> Iterable[Iterable[str]]:
     assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
     a_errors = []
     for vf, vd in iter_variants(a):
-        print('-'*128)
-        assert vd != None, f'variant data not found:{vf}'
+        print('-' * 128)
+        assert vd is not None, f'variant data not found:{vf}'
         success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=tmp_dir)
         if not a.dry_run:
             save_verification_report(vf, vd, AnchorVerificationCmd.DECODER, success, log_data, template=template)
@@ -222,37 +216,36 @@ def verify_anchor_metrics(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) 
             break
     if len(a_errors) == 0:
         anchor_metrics_to_csv(a)
-    print('-'*128)
+    print('-' * 128)
     return a_errors
 
 
-#########################################################################################################
-
-def bitstream_verification_preflight(a:AnchorTuple) -> List[Tuple[Path, Any, str]]:
+####
+def bitstream_verification_preflight(a: AnchorTuple) -> List[Tuple[Path, Any, str]]:
     """
     verifies:
         * all variant bitstreams exists
         * all bitstreams md5 match their json description
     """
-    err = None
+    err:List[Tuple[Path, Any, str]] = []
     for vf, vd in iter_variants(a):
         try:
             _ = a.locate_bitstream(vd, md5_check=True)
         except KeyboardInterrupt:
             raise
         except BaseException as e:
-            if err == None:
+            if err is None:
                 err = []
             err.append((vf, vd, e))
     cfg = a.encoder_cfg
     if not cfg.exists():
-        if err == None:
-               err = []
+        if err is None:
+            err = []
         err.append((cfg, a, 'encoder configuration not found'))
-    return err
+    return err if len(err) else None
 
 
-def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Path=None, debug=True) -> Tuple[bool, str]:
+def verify_variant_bitstream(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir: Path = None, debug=True) -> Tuple[bool, str]:
     """
     verifies:
         * re-encoding a new bitstream matches md5 of the existing bitstream
@@ -261,7 +254,7 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
     assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
     enc = get_encoder(enc_id)
 
-    if tmp_dir == None:
+    if tmp_dir is None:
         tmp = vf.parent.with_suffix('.tmp')
     else:
         tmp = tmp_dir / vf.stem
@@ -286,12 +279,12 @@ def verify_variant_bitstream(a:AnchorTuple, vd:VariantData, vf:Path, tmp_dir:Pat
         return False, f'invalid md5 - expected:{md5_new} - found:{md5_ref}'
 
 
-def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=None) -> Iterable[Iterable[str]]:
+def verify_anchor_bitstreams(a: AnchorTuple, template: dict = None, tmp_dir: Path = None) -> Iterable[Iterable[str]]:
     assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
     a_errors = []
     for vf, vd in iter_variants(a):
-        assert vd != None, f'variant data not found:{vf}'
-        print('-'*128)
+        assert vd is not None, f'variant data not found:{vf}'
+        print('-' * 128)
         success, log_data = verify_variant_bitstream(a, vd, vf, tmp_dir=tmp_dir)
         if not a.dry_run:
             save_verification_report(vf, vd, AnchorVerificationCmd.BITSTREAM, success, log_data, template=template)
@@ -299,27 +292,24 @@ def verify_anchor_bitstreams(a:AnchorTuple, template:dict=None, tmp_dir:Path=Non
             a_errors.append(log_data)
         if DEBUG_FIRST_VARIANT_ONLY:
             break
-    print('-'*128)
+    print('-' * 128)
     return a_errors
 
 
-def report_anchor_verifications(a:AnchorTuple, dw:DictWriter, template:dict=None) -> Iterable[Iterable[str]]:
+def report_anchor_verifications(a: AnchorTuple, dw: DictWriter, template: dict = None) -> Iterable[Iterable[str]]:
     assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
-    if template != None:
+    if template is not None:
         template = AnchorVerificationReport.from_json_dict(template)
 
     for vf, vd in iter_variants(a):
-        assert vd != None, f'variant data not found:{vf}'
+        assert vd is not None, f'variant data not found:{vf}'
         data = vd.verification["Reports"][-1]
         report = AnchorVerificationReport.from_json_dict(data)
         row = report.to_csv_dict(vf, vd, template=template)
         dw.writerow(row)
 
 
-
-#########################################################################################################
-
-def verify(verification_type:AnchorVerificationCmd, anchors:Iterable[AnchorTuple], dry_run=True, template:dict=None, tmp_dir:Path=None, report_dir:Path=None):
+def verify(verification_type: AnchorVerificationCmd, anchors: Iterable[AnchorTuple], dry_run=True, template: dict = None, tmp_dir: Path = None, report_dir: Path = None):
 
     batch = []
     preflight_errors = {}
@@ -334,7 +324,7 @@ def verify(verification_type:AnchorVerificationCmd, anchors:Iterable[AnchorTuple
 
     for a in anchors:
         err = preflight_fn(a)
-        if err == None:
+        if err is None:
             batch.append(a)
         else:
             preflight_errors[a] = err
@@ -358,7 +348,7 @@ def main():
     parser.add_argument('--scenario_dir', required=True, type=str, help='scenario directory')
     parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
     parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
-    parser.add_argument('-s','--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
+    parser.add_argument('-s', '--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
     parser.add_argument('--sequences_dir', required=False, type=str, help='the directory containing the reference sequences')
     parser.add_argument('--cfg_dir', required=False, type=str, help='directory where encoder configurations can be found, required for bitstream verification')
     parser.add_argument('--template', required=False, type=str, help='json template for the verification report')
@@ -382,13 +372,14 @@ def main():
     else:
         try:
             sequences_dir = scenario_dir.parent.parent.parent / 'ReferenceSequences'
-        except:
-            assert 0, f'invalid sequence directory. check the --sequences_dir option'
+        except BaseException as e:
+            print(e)
+            raise ValueError('invalid sequence directory. check the --sequences_dir option')
     
     cfg_dir = scenario_dir / '../CFG'
     if args.type == "bitstream":
         verification_type = AnchorVerificationCmd.BITSTREAM
-        if args.cfg_dir != None:
+        if args.cfg_dir is not None:
             cfg_dir = args.cfg_dir
             if not cfg_dir.exists():
                 parser.error("`a valid --cfg_dir` is required for bitstream verification")
@@ -404,18 +395,18 @@ def main():
         return
 
     tmp_dir = None
-    if args.tmp_dir != None:
+    if args.tmp_dir is not None:
         tmp_dir = Path(args.tmp_dir)
         assert tmp_dir.exists(), 'invalid temporary dir'
 
     keys = None
-    if args.key != None:
+    if args.key is not None:
         keys = [args.key]
 
     refs = reference_sequences_dict(references_csv, sequences_dir)
     anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=keys)
 
-    print('# PROCESSING', len(anchors), 'anchors', '#'*32)
+    print('# PROCESSING', len(anchors), 'anchors', '#' * 32)
     if len(anchors) == 0:
         return
 
@@ -431,7 +422,7 @@ def main():
             print('saving to: ', fp)
             dw = AnchorVerificationReport.get_csv_writer(fo)
             for a in anchors:
-                print('writing verifications for: ', a.anchor_key )
+                print('writing verifications for: ', a.anchor_key)
                 report_anchor_verifications(a, dw, template)
 
     else:
@@ -446,6 +437,7 @@ def main():
         except KeyboardInterrupt as e:
             print(e)
             return
+
 
 if __name__ == "__main__":
     main()

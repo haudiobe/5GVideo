@@ -2,36 +2,38 @@
 from pathlib import Path
 from typing import Iterable, List, Tuple, Any
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
-# plt.ioff()
+plt.ioff()
 
 import numpy as np
+# from numpy.typing import ArrayLike, DTypeLike
+
 import scipy.interpolate
 
-from anchor import VariantData, VariantMetricSet, Metric, iter_variants, AnchorTuple
-from download import AnchorTupleCtx
-from metrics import Metric
-import sys, csv
-
+from anchor import AnchorTupleCtx, VariantData, VariantMetricSet, Metric, iter_variants, AnchorTuple
+import sys
+import csv
 
 
 def sort_rates_on(rates, metric):
     """
-    sort [(rate, psnr), ...] samples based on psnr 
+    sort [(rate, psnr), ...] samples based on psnr
     """
     return rates[np.argsort(metric)], np.sort(metric)
 
+
 def sort_on_rates(rates, metric):
     """
-    sort [(rate, psnr), ...] samples based on rate 
+    sort [(rate, psnr), ...] samples based on rate
     """
     return np.sort(rates), metric[np.argsort(rates)]
 
 
 def sanitize_rd_data(rates, dist, step=0.001):
     """workaround for saturated dist values.
-        returns sanitized rates & dist, sorted on dist. 
-        consecutive samples that have the same values are modified with the given step 
+        returns sanitized rates & dist, sorted on dist.
+        consecutive samples that have the same values are modified with the given step
         so that the sequence is increasing instead of stagnating.
         if a sequence is decreasing rather than stagnating, it is not modified.
         eg. [50., 50., 50., 50., 50.] becomes [50., 50.001, 50.002, 50.003, 50.004]
@@ -47,32 +49,35 @@ def sanitize_rd_data(rates, dist, step=0.001):
     sanitized = False
     for i, _ in enumerate(rate):
         d = dist[i]
-        if i and (d == dist[i-1]):
+        if i and (d == dist[i - 1]):
             d = dist_fix[-1] + step
             sanitized = True
-        elif i and (d > dist[i-1]) and (d <= dist_fix[-1]):
+        elif i and (d > dist[i - 1]) and (d <= dist_fix[-1]):
             d = dist_fix[-1] + step
             sanitized = True
         dist_fix.append(d)
     if sanitized:
-        print("/!\ data has been sanitized:")
+        print("/!\\ data has been sanitized:")
         print(f" -  replaced: {dist}")
         print(f" -  with    : {dist_fix}")
     return rate, np.array(dist_fix, dtype=np.float64)
 
-def rd_metrics(variants:List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
-        return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
 
-def compare_anchors_metrics( anchor:List[VariantData], test:List[VariantData], rate="BitrateLog", dist="psnr", title="", strict=False, sanitize=True ) -> float:
+def rd_metrics(variants: List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
+    return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
+
+
+def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], rate="BitrateLog", dist=None, title="", strict=False, sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     try:
-        print("#", dist, "#"*(32-len(str(dist))))
-        return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, title=title, dist_label=dist)
+        print("#", dist, "#" * (32 - len(str(dist))))
+        return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, title=title, dist_label=None)
     except BaseException as e:
         if strict:
             raise
         raise ValueError(f'A:{anchor_metrics} | T:{test_metrics} | Err: {e}')
+
 
 def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, csv_headers=True):
     with open(path, 'a' if csv_append else 'w', newline='') as csvfile:
@@ -89,18 +94,18 @@ def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, cs
         if csv_headers:
             writer.writeheader()
         for v in variants:
-            row = { k: v for [k, v] in v.metrics.items() if k in fieldnames }
+            row = {k: v for [k, v] in v.metrics.items() if k in fieldnames}
             row['ID'] = v.variant_id
-            writer.writerow( row )
+            writer.writerow(row)
 
 
-def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str], strict=False, sanitize=True, plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
+def compare_anchors_directories(refdir: Path, testdir: Path, metrics: Iterable[str], strict=False, sanitize=True, plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
 
-    def load_anchor_directory(ad:Path) -> Tuple[AnchorTuple, List[VariantData]]:
+    def load_anchor_directory(ad: Path) -> Tuple[AnchorTuple, List[VariantData]]:
         assert ad.is_dir(), f'not a directory {ad}'
         ctx, anchor_key = AnchorTupleCtx.from_anchor_directory(ad)
         a = ctx.iter_anchors(keys=[anchor_key])[0]
-        v = [ vdata for (_, vdata) in iter_variants(a) ]
+        v = [vdata for (_, vdata) in iter_variants(a)]
         return a, v
 
     aref, vref = load_anchor_directory(refdir)
@@ -131,25 +136,24 @@ def compare_anchors_directories(refdir:Path, testdir:Path, metrics:Iterable[str]
             if strict:
                 raise
             vms[key] = str(e)
-    
+
     return aref.reference.sequence['Key'], vms
 
 
-#######################################################
-
-def _parse_filter(fp:Path):
+def _parse_filter(fp: Path):
     arr = fp.name.split("@")
     if len(arr) > 1:
         return fp.parent / "@".join(arr[:-1]), arr[-1]
     else:
         return fp, None
 
-def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False):
+
+def compare_encoder_configs(ref: Path, test: Path, metrics: List[str], strict=False):
 
     refdir, refkey = _parse_filter(ref)
     refctx = AnchorTupleCtx(scenario_dir=refdir)
     ref_anchors = refctx.iter_anchors(cfg_keys=[refkey])
-    
+
     testdir, testkey = _parse_filter(test)
     testctx = AnchorTupleCtx(scenario_dir=testdir)
     test_anchors = testctx.iter_anchors(cfg_keys=[testkey])
@@ -159,14 +163,14 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
     bd_rates = []
 
     for aref, atest in zip(ref_anchors, test_anchors):
-        vref = [ v for (_, v) in iter_variants(aref) ]
-        vtest = [ v for (_, v) in iter_variants(atest) ]
+        vref = [v for (_, v) in iter_variants(aref)]
+        vtest = [v for (_, v) in iter_variants(atest)]
         arates = {}
-        print("\n"+"="*35)
-        print(f'{aref.anchor_key} vs {atest.anchor_key}\n'+'='*35)
+        print("\n" + "=" * 35)
+        print(f"{aref.anchor_key} vs {atest.anchor_key}\n" + "=" * 35)
         for key in metrics:
             try:
-                _, bd, *_  = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
+                fig, bd, *extra = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
                 arates[key] = bd
             except BaseException as e:
                 if strict:
@@ -177,8 +181,9 @@ def compare_encoder_configs(ref:Path, test:Path, metrics:List[str], strict=False
 
     return [(r.reference.sequence['Key'], bdr) for (r, _, bdr) in bd_rates]
 
+
 def csv_dump(data, fp):
-    fieldnames = [ 
+    fieldnames = [
         'reference',
         Metric.PSNR_Y.key,
         Metric.PSNR.key,
@@ -199,9 +204,9 @@ def csv_dump(data, fp):
 
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        
+
         for r in data:
-            
+
             row = {}
 
             for k in fieldnames:
@@ -210,9 +215,9 @@ def csv_dump(data, fp):
                     continue
                 if k == "reference":
                     continue
-                
+
                 v = row[k]
-                if v == None or type(v) == str:
+                if v is None or type(v) == str:
                     continue
                 if k in stats["min"]:
                     stats["min"][k] = min(v, stats["min"][k])
@@ -226,23 +231,23 @@ def csv_dump(data, fp):
                     stats["avg"][k].append(v)
                 else:
                     stats["avg"][k] = [v]
-            
+
             writer.writerow(row)
 
         if len(data) == 1:
             return
 
-        r = { "reference": "Min" }
+        r = {"reference": "Min"}
         for k in fieldnames[1:]:
             r[k] = stats["min"].get(k, None)
         writer.writerow(r)
 
-        r = { "reference": "Max" }
+        r = {"reference": "Max"}
         for k in fieldnames[1:]:
             r[k] = stats["max"].get(k, None)
         writer.writerow(r)
 
-        r = { "reference": "Avg" }
+        r = {"reference": "Avg"}
         for k in fieldnames[1:]:
             avg = None
             if k in stats["avg"] and len(stats["avg"][k]):
@@ -254,28 +259,26 @@ def csv_dump(data, fp):
         writer.writerow(r)
 
 
-
-#####################################################################################################
-
 def strictly_increasing(samples):
     for i, v in enumerate(samples):
-        if i and v <= samples[i-1]:
+        if i and v <= samples[i - 1]:
             return False
     return True
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dist"):
-    
-    """
-    adapted from https://github.com/Anserw/Bjontegaard_metric
+
+def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None) -> Tuple[Figure, int, Any, Any, Any, Any]:
+    """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
-        [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33) 
+        [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
         [2] S. Pateux, J. Jung, An excel add-in for computing Bjontegaard metric and its evolution
     """
+    if not dist_label:
+        dist_label = "quality"
 
     if sanitize:
         R1, DIST1 = sanitize_rd_data(R1, DIST1)
         R2, DIST2 = sanitize_rd_data(R2, DIST2)
-        b = strictly_increasing(DIST1) and strictly_increasing(DIST2)
+        _ = strictly_increasing(DIST1) and strictly_increasing(DIST2)
 
     else:
         DIST1 = np.array(DIST1)
@@ -294,7 +297,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
 
     [r2, d2] = sort_on_rates(lR2, DIST2)
     assert strictly_increasing(d2)
-    
+
     v1, v2, avg_diff, fig = None, None, 0, None
     try:
         v1 = scipy.interpolate.pchip_interpolate(d1, r1, samples)
@@ -302,14 +305,14 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
 
         int1 = np.trapz(v1, dx=interval)
         int2 = np.trapz(v2, dx=interval)
-        avg_exp_diff = (int2-int1)/(max_int-min_int)
-        avg_diff = (np.exp(avg_exp_diff)-1) * -100
+        avg_exp_diff = (int2 - int1) / (max_int - min_int)
+        avg_diff = (np.exp(avg_exp_diff) - 1) * -100
 
-        fig, axs = plt.subplots(1, 2, figsize=(20, 12))
+        fig, axs = plt.subplots(1, 3, figsize=(30, 12))
 
         axs[0].plot(R1, DIST1, 'o-', R2, DIST2, 'o-')
         axs[0].set_xlabel('bitrate', fontsize=21)
-        axs[0].set_ylabel('quality', fontsize=21)
+        axs[0].set_ylabel(dist_label, fontsize=21)
         axs[0].grid(True)
         axs[0].tick_params(axis='both', which='major', labelsize=21)
         axs[0].set_title('Rate-Quality Curve', fontdict={'fontsize': 21, 'fontweight': 'medium'})
@@ -321,10 +324,10 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
         axs[1].plot(r2, d2, 'o:', label="test (measured)")
         axs[1].plot(v1, samples, '-', label="anchor (interpolated)")
         axs[1].plot(v2, samples, '-', label="test (interpolated)")
-        
+
         axs[1].legend()
         axs[1].set_xlabel('bitrate (log)', fontsize=21)
-        axs[1].set_ylabel(f'quality', fontsize=21)
+        axs[1].set_ylabel(dist_label, fontsize=21)
         axs[1].grid(True)
         axs[1].tick_params(axis='both', which='major', labelsize=21)
         axs[1].set_title(f'BD rate gain: {avg_diff:.3f}', fontdict={'fontsize': 21, 'fontweight': 'medium'})
@@ -335,49 +338,41 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label="dis
         if title and title != "":
             fig.suptitle(title, fontsize=21)
 
+        x = [i * interval for i in range(100)]
+        axs[2].set_xlabel('composite trapezoidal integration', fontsize=21)
+        axs[2].plot(x, v1, '-', label="anchor (interpolated)")
+        axs[2].plot(x, v2, '-', label="test (interpolated)")
+        axs[2].fill_between(x, v1, v2, color='red', alpha=0.75)
+
     except ValueError as ve:
         print(ve)
-        print('d1:', d1)
-        print('d2:', d2)
-    
+        print('d1: ', d1)
+        print('d2: ', d2)
+
     return fig, avg_diff, R1, DIST1, R2, DIST2
-
-
-#####################################################################################################
-
 
 
 def main():
 
     assert len(sys.argv) == 3
-
     ref = Path(sys.argv[1])
     test = Path(sys.argv[2])
-
     print("Anchor:", ref)
     print("Test:", test)
-    
-    metrics = [ m.key for m in (
-            Metric.PSNR_Y, 
-            Metric.PSNR, 
-            Metric.MSSSIM, 
-            Metric.VMAF 
-        )]
+    metrics = [m.key for m in (Metric.PSNR_Y, Metric.PSNR, Metric.MSSSIM, Metric.VMAF)]
 
-    if ref.is_dir() and (ref.parent / 'streams.csv').exists() \
-        and test.is_dir() and (test.parent / 'streams.csv').exists():
+    if ref.is_dir() and (ref.parent / 'streams.csv').exists() and test.is_dir() and (test.parent / 'streams.csv').exists():
         # eg. compare.py ./scenario/codec1/a_ker1 ./scenario/codec2/a_ker2
-        plots = [ m.key for m in (
-            Metric.PSNR_Y, 
-            Metric.PSNR, 
-            Metric.MSSSIM, 
-            Metric.VMAF
-        )]
+        plots = [m.key for m in (
+            Metric.PSNR_Y,
+            Metric.PSNR,
+            Metric.MSSSIM,
+            Metric.VMAF)]
         seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=True, plots=plots)
         r['reference'] = seqid
         outp = test.parent / 'Metrics' / f'{ref.name}.{test.name}.csv'.lower()
         csv_dump([r], outp)
-    
+
     else:
         # eg. compare.py ./scenario/codec1@cfg_id1 ./scenario/codec2@cfg_id2
         _, refkey = _parse_filter(ref)
@@ -388,6 +383,7 @@ def main():
             r['reference'] = seqid
             data.append(r)
         csv_dump(data, outp)
-        
+
+
 if __name__ == "__main__":
     main()
