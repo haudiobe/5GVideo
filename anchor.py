@@ -1,22 +1,30 @@
-import json, csv, math, enum
+import json
+import csv
+import math
+import enum
+import argparse
+import logging
+
 from pathlib import Path
-from typing import Dict, Generator, Tuple, Iterable
+from typing import Dict, Generator, Tuple, Iterable, List
 from itertools import chain
 
 from utils import VideoSequence, md5_checksum
 
 ENCODING = 'utf-8-sig'
 
+
 # scenario/anchors.csv
 class AnchorList:
-    KEY = '#Key' # directory where anchor is stored
+    KEY = '#Key'  # directory where anchor is stored
     CLAUSE = 'Clause'
     REF_SEQ = 'Reference Sequence'
     REF_ENC = 'Reference_Encoder'
     TEST_ENC = 'Test_Encoder'
     CFG = 'Configuration'
     VARIANTS = 'Variations'
-    VARIANT_KEY = 'Anchor_Key' # template for variant json filename
+    VARIANT_KEY = 'Anchor_Key'  # template for variant json filename
+
 
 # scenario/sequences.csv
 class RefSequenceList:
@@ -41,6 +49,7 @@ class M:
     def __str__(self):
         return self.key
 
+
 class Metric(enum.Enum):
 
     @property
@@ -55,30 +64,30 @@ class Metric(enum.Enum):
     def key(self):
         return self.value.key
 
-    PSNR        = M( "PSNR" )
-    PSNR_Y      = M( "YPSNR" )
-    PSNR_U      = M( "UPSNR" )
-    PSNR_V      = M( "VPSNR" )
-    MSSSIM      = M( "MS_SSIM" )
-    VMAF        = M( "VMAF" )
-    BITRATE     = M( "Bitrate" )
-    BITRATELOG  = M( "BitrateLog" )
-    ENCODETIME  = M( "EncodeTime" )
-    DECODETIME  = M( "DecodeTime" )
+    PSNR = M("PSNR")
+    PSNR_Y = M("YPSNR")
+    PSNR_U = M("UPSNR")
+    PSNR_V = M("VPSNR")
+    MSSSIM = M("MS_SSIM")
+    VMAF = M("VMAF")
+    BITRATE = M("Bitrate")
+    BITRATELOG = M("BitrateLog")
+    ENCODETIME = M("EncodeTime")
+    DECODETIME = M("DecodeTime")
 
     @classmethod
-    def json_dict(cls, v:'VariantMetricSet'):
-        j = { m.key: m.json_key for m in cls }
-        return { j[k]: v for (k, v) in v.items() }
+    def json_dict(cls, v: 'VariantMetricSet'):
+        j = {m.key: m.json_key for m in cls}
+        return {j[k]: v for (k, v) in v.items()}
 
     @classmethod
-    def csv_dict(cls, v:'VariantMetricSet'):
-        c = { m.key: m.csv_key for m in cls }
-        return { c[k]: v for (k, v) in v.items() }
+    def csv_dict(cls, v: 'VariantMetricSet'):
+        c = {m.key: m.csv_key for m in cls}
+        return {c[k]: v for (k, v) in v.items()}
 
 
 class ReconstructionMeta:
-    def __init__(self, decoder_id:str, reconstructed:Path, decoder_log:Path, md5=True):
+    def __init__(self, decoder_id: str, reconstructed: Path, decoder_log: Path, md5=True):
         self.decoder_id = decoder_id
         self.reconstructed = reconstructed
         if md5:
@@ -101,14 +110,14 @@ class VariantMetricSet(dict):
     def compute_avg_psnr(self, strict=False):
         try:
             [Y, U, V] = [self.get(k.key) for k in [Metric.PSNR_Y, Metric.PSNR_U, Metric.PSNR_V]]
-            psnr = ((6*Y)+U+V)/8
-            u = { Metric.PSNR.key: psnr }
+            psnr = ((6 * Y) + U + V) / 8
+            u = {Metric.PSNR.key: psnr}
             self.update(u)
             return psnr
         except BaseException as e:
             if strict:
                 raise
-            u = { Metric.PSNR.key: str(e) }
+            u = {Metric.PSNR.key: str(e)}
             self.update(u)
             return None
 
@@ -171,7 +180,7 @@ def to_lower(maybe_str):
 class VariantData:
 
     @classmethod
-    def load(cls, fp:Path) -> 'VariantData':
+    def load(cls, fp: Path) -> 'VariantData':
         assert fp.exists(), f'File not found: {fp}'
         with open(fp, 'r') as fo:
             data = json.load(fo)
@@ -181,7 +190,7 @@ class VariantData:
 
             d = data.get("Metrics", None)
             metrics = None
-            if d != None:
+            if d is not None:
                 metrics = VariantMetricSet()
                 for k, v in d.items():
                     try:
@@ -190,14 +199,13 @@ class VariantData:
                         metrics[k] = None
                 if Metric.PSNR.key not in metrics:
                     metrics.compute_avg_psnr(strict=False)
-            
             verification = data.get("Verification", None)
             contact = data.get("contact", None)
             copyright = data.get("copyRight", None)
             return VariantData(generation, bitstream, reconstruction, metrics, verification, contact, copyright)
 
     @classmethod
-    def new(cls, a:'AnchorTuple', variant_id:str, variant_cli:str, encoder_log:Path, bitstream_fp:Path, reconstruction:'ReconstructionMeta') -> 'VariantData':
+    def new(cls, a: 'AnchorTuple', variant_id: str, variant_cli: str, encoder_log: Path, bitstream_fp: Path, reconstruction: 'ReconstructionMeta') -> 'VariantData':
         generation = {
             "key": variant_id,
             "sequence": a.reference.path.name,
@@ -231,12 +239,12 @@ class VariantData:
         }
         return json.dumps(data, indent=4)
 
-    def save_as(self, fp:Path):
+    def save_as(self, fp: Path):
         data = self.dumps()
         with open(fp, 'w') as fo:
             fo.write(data)
 
-    def __init__(self, generation:dict=None, bitstream:dict=None, reconstruction:dict=None, metrics:dict=None, verification:dict=None, contact:dict=None, copyright:str=''):
+    def __init__(self, generation: dict = None, bitstream: dict = None, reconstruction: dict = None, metrics: dict = None, verification: dict = None, contact: dict = None, copyright: str = ''):
         self._generation = generation
         self._bitstream = bitstream
         self._contact = contact
@@ -245,7 +253,6 @@ class VariantData:
         self._verification = verification
         self._copyright = copyright
 
-
     @property
     def variant_id(self) -> str:
         return self._bitstream["key"]
@@ -253,98 +260,80 @@ class VariantData:
     @property
     def variant_cli(self) -> str:
         return self._generation["variant"]
-    
-
-    #######################################
 
     @property
     def generation(self) -> dict:
         return self._generation
 
     @generation.setter
-    def generation(self, b:dict):
-        if b == None:
+    def generation(self, b: dict):
+        if b is None:
             self._generation = None
-        keys = [ "config-file", "encoder", "key", "log-file", "sequence", "variant" ]
-        self._generation = { k: b[k] for k in keys }
-
-    #######################################
+        keys = ["config-file", "encoder", "key", "log-file", "sequence", "variant"]
+        self._generation = {k: b[k] for k in keys}
 
     @property
     def bitstream(self) -> dict:
         return self._bitstream
 
     @bitstream.setter
-    def bitstream(self, b:dict):
-        if b == None:
+    def bitstream(self, b: dict):
+        if b is None:
             self._bitstream = None
-        keys = [ "URI", "key", "md5", "size" ]
-        self._bitstream = { k: b[k] for k in keys }
-
-    #######################################
+        keys = ["URI", "key", "md5", "size"]
+        self._bitstream = {k: b[k] for k in keys}
 
     @property
     def reconstruction(self) -> dict:
         return self._reconstruction
 
     @reconstruction.setter
-    def reconstruction(self, b:dict):
-        if b == None:
+    def reconstruction(self, b: dict):
+        if b is None:
             self._reconstruction = None
-        keys = [ "decoder", "log-file", "md5" ]
-        self._reconstruction = { k: b[k] for k in keys }
-
-    #######################################
+        keys = ["decoder", "log-file", "md5"]
+        self._reconstruction = {k: b[k] for k in keys}
 
     @property
     def metrics(self) -> VariantMetricSet:
         return self._metrics
 
     @metrics.setter
-    def metrics(self, b:VariantMetricSet):
+    def metrics(self, b: VariantMetricSet):
         self._metrics = b
-
-
-    #######################################
 
     @property
     def verification(self) -> dict:
         return self._verification
 
     @verification.setter
-    def verification(self, b:dict):
-        if b == None:
+    def verification(self, b: dict):
+        if b is None:
             self._verification = None
-        keys = [ "Reports" ] #, "cross-verification-status" ]
-        self._verification = { k: b[k] for k in keys }
-
-    #######################################
+        keys = ["Reports"]  # , "cross-verification-status"]
+        self._verification = {k: b[k] for k in keys}
 
     @property
     def contact(self) -> dict:
         return self._contact
 
     @contact.setter
-    def contact(self, b:dict):
-        if b == None:
+    def contact(self, b: dict):
+        if b is None:
             self._contact = None
-        keys = [ "Company", "email" ]
-        self._contact = { k: b[k] for k in keys }
-
-    #######################################
+        keys = ["Company", "email"]
+        self._contact = {k: b[k] for k in keys}
 
     @property
     def copyright(self) -> str:
         return self._copyright
 
     @copyright.setter
-    def copyright(self, c:str):
+    def copyright(self, c: str):
         self._copyright = c
 
-    #######################################
-
-    def locate_bitstream(self, anchor_dir:Path, md5_check=True) -> Path:
-        assert self.bitstream != None, 'bitstream definition not found'
+    def locate_bitstream(self, anchor_dir: Path, md5_check=True) -> Path:
+        assert self.bitstream is not None, 'bitstream definition not found'
         assert anchor_dir.is_dir(), 'invalid anchor directory'
         fp = anchor_dir / Path(self._bitstream['URI'])
         assert fp.exists(), f'bitstream file does not exist: {fp}'
@@ -353,21 +342,18 @@ class VariantData:
         return fp
 
     def has_metric_set(self, *metrics) -> bool:
-        assert (self._reconstruction != None) and (self._reconstruction['md5'] != None), 'invalid reconstruction'
+        assert (self._reconstruction is not None) and (self._reconstruction['md5'] is not None), 'invalid reconstruction'
         if type(self._metrics) != dict:
             return False
         for m in metrics:
-            if not m in self._metrics:
+            if m not in self._metrics:
                 return False
         return True
 
 
-#########################################################################################################
-
-
 class AnchorTuple:
-    
-    def __init__(self, anchor_dir:Path, reference:VideoSequence, encoder_id:str, encoder_cfg:str, variants:str, anchor_key:str, description:str=None, start_frame:int=0, frame_count:int=None, dry_run:bool=False):
+
+    def __init__(self, anchor_dir: Path, reference: VideoSequence, encoder_id: str, encoder_cfg: str, variants: str, anchor_key: str, description: str = None, start_frame: int = 0, frame_count: int = None, dry_run: bool = False):
         self._working_dir = anchor_dir
         self._encoder_id = encoder_id
         self._encoder_cfg = encoder_cfg
@@ -375,7 +361,7 @@ class AnchorTuple:
         self._description = description
         self._anchor_key = anchor_key
         self._start_frame = start_frame
-        self._frame_count = frame_count if frame_count != None else reference.frame_count
+        self._frame_count = frame_count if frame_count is not None else reference.frame_count
 
         assertion = "expecting 'variants' to be a list of integer QP values, parsed from a json string"
         try:
@@ -393,7 +379,7 @@ class AnchorTuple:
         return self._working_dir
 
     @working_dir.setter
-    def working_dir(self, wd:Path):
+    def working_dir(self, wd: Path):
         if not issubclass(type(wd), Path):
             raise ValueError('Expecting a valid pathlib.Path')
         self._working_dir = wd
@@ -403,7 +389,7 @@ class AnchorTuple:
         return self._encoder_id
 
     @property
-    def encoder_cfg(self) -> Path: 
+    def encoder_cfg(self) -> Path:
         p = Path(self._encoder_cfg)
         if p.is_absolute():
             return p
@@ -437,7 +423,7 @@ class AnchorTuple:
     def iter_variants_args(self) -> Generator[Tuple[str, list], None, None]:
         """generator to iterate over (variant_id, variant_encoder_args)
             variant_id can be used to locate variant bitstream json file.
-            variant_encoder_args is parsed by encoders implementations, 
+            variant_encoder_args is parsed by encoders implementations,
                 eg. using by python's shlex module.
                 variant_encoder_args is stored as is in the bitstream json metadata.
         """
@@ -448,14 +434,14 @@ class AnchorTuple:
     def anchor_key(self):
         return self._anchor_key
 
-    def relative_path(self, p:Path) -> Path:
+    def relative_path(self, p: Path) -> Path:
         if p.is_relative_to(self.working_dir):
             return p.relative_to(self.working_dir)
         else:
             return p
 
-    def locate_bitstream(self, vd:VariantData, md5_check=True) -> Path:
-        assert vd.bitstream != None, 'bitstream definition not found'
+    def locate_bitstream(self, vd: VariantData, md5_check=True) -> Path:
+        assert vd.bitstream is not None, 'bitstream definition not found'
         assert self.working_dir.is_dir(), 'invalid anchor directory'
         fp = self.working_dir / Path(vd.bitstream['URI'])
         assert fp.exists(), f'bitstream file does not exist: {fp}'
@@ -464,22 +450,22 @@ class AnchorTuple:
         return fp
 
 
-#########################################################################################################
-
 def ref_location(row) -> str:
     loc = row[RefSequenceList.LOC]
     return f'{loc}/{loc}.json'
 
-def iter_ref_locations(reference_list:Path) -> Iterable[str]:
+
+def iter_ref_locations(reference_list: Path) -> Iterable[str]:
     refs = []
     with open(reference_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
-            refs.append( ref_location(row) )
+            refs.append(ref_location(row))
     return refs
 
-def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.'), raises=False) -> Dict[str, VideoSequence]:
-    """produces a dict mapping a reference sequence key 
-        to a VideoSequence if the sequence exists - None if it doesn't exist, or raises is True. 
+
+def reference_sequences_dict(reference_list: Path, root_dir: Path = Path('.'), raises=False) -> Dict[str, VideoSequence]:
+    """produces a dict mapping a reference sequence key
+        to a VideoSequence if the sequence exists - None if it doesn't exist, or raises is True.
     """
     refs = {}
     with open(reference_list, 'r', encoding=ENCODING) as fo:
@@ -495,29 +481,31 @@ def reference_sequences_dict(reference_list:Path, root_dir:Path=Path('.'), raise
             if vs.sequence:
                 vs.sequence['Key'] = k
             dur = float(row[RefSequenceList.DUR])
-            if not math.isclose( vs.frame_count/vs.frame_rate, dur):
-                print(f'(frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
+            if not math.isclose(vs.frame_count / vs.frame_rate, dur):
+                print(f'# (frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
             refs[k] = vs
     return refs
 
-def iter_anchors_csv(anchor_list:Path) -> Dict[str, str]:
+
+def iter_anchors_csv(anchor_list: Path) -> Dict[str, str]:
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
             yield row
 
-def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:Path, cfg_dir=None, keys:Iterable[str]=None, cfg_keys:Iterable[str]=None) -> Iterable[AnchorTuple]:
+
+def iter_anchors(anchor_list: Path, refs: Dict[str, VideoSequence], scenario_dir: Path, cfg_dir=None, keys: Iterable[str] = None, cfg_keys: Iterable[str] = None) -> Iterable[AnchorTuple]:
     anchors = []
     with open(anchor_list, 'r', encoding=ENCODING) as fo:
         for row in csv.DictReader(fo):
             anchor_key = row[AnchorList.KEY]
-            if (keys != None) and (anchor_key not in keys):
+            if (keys is not None) and (anchor_key not in keys):
                 continue
             seq = refs[row[AnchorList.REF_SEQ]]
             description = row[AnchorList.CLAUSE]
-            encoder_id = row[AnchorList.REF_ENC] if AnchorList.REF_ENC in row else row[AnchorList.TEST_ENC] # eg. HM16.22, 
+            encoder_id = row[AnchorList.REF_ENC] if AnchorList.REF_ENC in row else row[AnchorList.TEST_ENC]  # eg. HM16.22
             encoder_cfg_key = str(row[AnchorList.CFG])
-            encoder_cfg = encoder_cfg_key.lower() + '.cfg' # eg. S3-HM-01, no directory context specified
-            if (cfg_keys != None) and (encoder_cfg_key not in cfg_keys):
+            encoder_cfg = encoder_cfg_key.lower() + '.cfg'  # eg. S3-HM-01, no directory context specified
+            if (cfg_keys is not None) and (encoder_cfg_key not in cfg_keys):
                 continue
             if cfg_dir:
                 encoder_cfg = Path(cfg_dir / encoder_cfg).resolve()
@@ -525,12 +513,12 @@ def iter_anchors(anchor_list:Path, refs:Dict[str, VideoSequence], scenario_dir:P
             anchor_dir = scenario_dir / row[AnchorList.KEY]
             bitsream_key_template = row[AnchorList.VARIANT_KEY]
             anchors.append(
-                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count)
-            )
+                AnchorTuple(anchor_dir, seq, encoder_id, encoder_cfg, variants, bitsream_key_template, description, seq.start_frame, seq.frame_count))
     return anchors
 
-def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
-    """Iterate the variant bitstream's json metadata path of the anchor, 
+
+def iter_variants(a: AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
+    """Iterate the variant bitstream's json metadata path of the anchor,
         loads and returns VariantData if the metadata file exists.
     """
     for variant_id, _ in a.iter_variants_args():
@@ -539,3 +527,125 @@ def iter_variants(a:AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
         if vfp.exists():
             data = VariantData.load(vfp)
         yield vfp, data
+
+
+def anchor_path_from_key(key: str) -> Path:
+    arr = key.split('-')
+    if len(arr) == 3:
+        scenario, _, enc = arr
+        if scenario == 'S1':
+            scenario = 'Scenario-1-FHD'
+        elif scenario == 'S2':
+            scenario = 'Scenario-2-4K'
+        elif scenario == 'S3':
+            scenario = 'Scenario-3-Sceen'
+        elif scenario == 'S4':
+            scenario = 'Scenario-4-Sharing'
+        elif scenario == 'S5':
+            scenario = 'Scenario-5-Gaming'
+        else:
+            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
+        return Path(f'./Bitstreams/{scenario}/{enc}/{key}/')
+    
+    raise ValueError(f'Invalid anchor key "{key}"')
+
+
+class AnchorTupleCtx:
+
+    @classmethod
+    def parse_args(cls, parser: argparse.ArgumentParser = None, scenario_dir=None,) -> 'AnchorTupleCtx':
+        if parser is None:
+            parser = argparse.ArgumentParser()
+        parser.add_argument('--scenario_dir', required=True, default=None, type=str, help='scenario directory, eg. Scenario-3-Screen/265')
+        parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
+        parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
+        parser.add_argument('-s', '--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
+        parser.add_argument('--sequences_dir', required=False, type=str, help='the directory containing the reference sequences')
+        parser.add_argument('--dry-run', action='store_true', default=False)
+        parser.add_argument('--dl-streams', action='store_true', default=False, help='download streams')
+        parser.add_argument('--dl-ref-sequences', action='store_true', default=False, help='download reference sequences')
+        cli_args = parser.parse_args()
+        return cls(cli_args=cli_args)
+
+    @classmethod
+    def from_anchor_directory(cls, ad: Path) -> Tuple['AnchorTupleCtx', str]:
+        assert ad.is_dir(), f'invalid directory: {ad}'
+        ad = ad.resolve()
+        return cls(scenario_dir=ad.parent), ad.name
+
+    @classmethod
+    def from_encoder_directory(cls, ad: Path) -> Tuple['AnchorTupleCtx', str]:
+        assert ad.is_dir(), f'invalid directory: {ad}'
+        ad = ad.resolve()
+        return cls(scenario_dir=ad.parent), ad.name
+
+    def __init__(self, cli_args=None, **kwargs):
+
+        if cli_args:
+            scenario_dir = Path(cli_args.scenario_dir)
+            if not scenario_dir.exists():
+                scenario_dir.mkdir(parents=True)
+
+            references_csv = scenario_dir / Path(cli_args.sequences_list)
+            if not references_csv.exists():
+                logging.info(f'reference-sequence.csv not found {references_csv}')
+
+            anchors_csv = scenario_dir / cli_args.anchors_list
+            if not anchors_csv.exists():
+                logging.info(f'streams.csv list not found {anchors_csv}')
+
+            sequences_dir = scenario_dir / '../../../ReferenceSequences'
+            if cli_args.sequences_dir is not None:
+                sequences_dir = Path(cli_args.sequences_dir).resolve()
+                assert sequences_dir.is_dir(), f'invalid sequence directory {sequences_dir}'
+
+            self.scenario_dir = scenario_dir
+            self.anchors_csv = anchors_csv
+            self.references_csv = references_csv
+            self.sequences_dir = sequences_dir
+            self.dry_run = cli_args.dry_run
+
+            self.dl_streams = cli_args.dl_streams
+            self.dl_ref_sequences = not self.dl_streams
+            self.key = cli_args.key
+
+        else:
+            self.scenario_dir = Path(kwargs['scenario_dir'])
+            if 'anchors_csv' in kwargs:
+                self.anchors_csv = kwargs['anchors_csv']
+            else:
+                self.anchors_csv = self.scenario_dir / 'streams.csv'
+
+            if 'references_csv' in kwargs:
+                self.references_csv = kwargs['references_csv']
+            else:
+                self.references_csv = self.scenario_dir.parent / 'reference-sequence.csv'
+
+            if 'sequences_dir' in kwargs:
+                self.sequences_dir = kwargs['sequences_dir']
+            else:
+                self.sequences_dir = self.base_dir() / 'ReferenceSequences'
+
+            if 'metrics_dir' in kwargs:
+                self.metrics_dir = kwargs['metrics_dir']
+            else:
+                self.metrics_dir = self.scenario_dir / 'Metrics'
+
+            if 'dry_run' in kwargs:
+                self.dry_run = bool(kwargs['dry_run'])
+            else:
+                self.dry_run = False
+
+    def base_dir(self) -> Path:
+        # scenario_dir is $base_dir/Bitstreams/$scenario/$codec/
+        return self.scenario_dir.parent.parent.parent
+
+    def iter_ref_sequences(self) -> Generator[Tuple[str, VideoSequence], None, None]:
+        for key, video_sequence in reference_sequences_dict(self.references_csv, self.sequences_dir).items():
+            yield key, video_sequence
+
+    def iter_anchors(self, keys: List[str] = None, cfg_keys: List[str] = None) -> Iterable[AnchorTuple]:
+        if (keys is None) and hasattr(self, "key"):
+            keys = [self.key]
+        refs = reference_sequences_dict(self.references_csv, self.sequences_dir)
+        return iter_anchors(self.anchors_csv, refs, self.scenario_dir, keys=keys, cfg_keys=cfg_keys)

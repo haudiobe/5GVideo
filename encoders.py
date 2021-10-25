@@ -3,7 +3,7 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import List
+from typing import Any, List
 from utils import run_process, ChromaFormat, ChromaSubsampling, VideoSequence
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
@@ -11,7 +11,7 @@ from anchor import AnchorTuple, VariantData, ReconstructionMeta
 __encoders__ = {}
 
 
-def register_encoder(cls:'EncoderBase'):
+def register_encoder(cls: 'EncoderBase') -> Any:
     """a class decorator to register a custom encoder implementation
     the encoder class must declare an 'encoder_id' class property
     """
@@ -22,7 +22,8 @@ def register_encoder(cls:'EncoderBase'):
     __encoders__[cls.encoder_id] = cls
     return cls
 
-def get_encoder(id:str) -> 'EncoderBase':
+
+def get_encoder(id: str) -> 'EncoderBase':
     """get an encoder implementation decorated with @register_encoder
     """
     if id in __encoders__:
@@ -34,24 +35,24 @@ def get_encoder(id:str) -> 'EncoderBase':
     except KeyError:
         pass
     return None
-    
+
 
 class EncoderBase(ABC):
     """the base class for encoders to extend
     """
 
-    encoder_id:str = None
-    encoder_bin:str = None
-    decoder_bin:str = None
+    encoder_id: str = None
+    encoder_bin: str = None
+    decoder_bin: str = None
 
     @abstractclassmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         """Parse the variant cli from streams.csv into command line options.
         """
         raise NotImplementedError()
     
     @abstractclassmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         """Produce the command line to encode the specified anchor's variant. Subclasses must supply its own implementation.
             Producing a reconstruction file while encoding is not enforced, 
                 and when implemented must generate the appropriate json metadata (anchor.ReconstructionMeta) to support the metrics computation workflow.
@@ -59,34 +60,34 @@ class EncoderBase(ABC):
         raise NotImplementedError()
 
     @abstractclassmethod
-    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+    def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
         """Produce the command line to decoder the specified anchor's variant. Subclasses must supply its own implementation.
         """
         raise NotImplementedError()
 
     @classmethod
-    def decoder_log_metrics(cls, log:Path) -> dict:
+    def decoder_log_metrics(cls, log: Path) -> dict:
         """parse decoder logs / stat files, and return a metrics dict
         """
-        print(f'/!\ decoder {cls} does not implement a custom log parsing')
+        print(f'/!\\ decoder {cls} does not implement a custom log parsing')
         return {}
 
     @classmethod
-    def encoder_log_metrics(cls, log:Path) -> dict:
+    def encoder_log_metrics(cls, log: Path) -> dict:
         """parse encoder logs / stats, and return a metrics dict
         """
-        print(f'/!\ custom encoder does not implement log parsing')
+        print('/!\\ custom encoder does not implement log parsing')
         return {}
 
     @classmethod
-    def encode_variant(cls, a:AnchorTuple, variant_id:str, variant_cli:str, dst_dir:Path=None) -> VariantData:
+    def encode_variant(cls, a: AnchorTuple, variant_id: str, variant_cli: str, dst_dir: Path = None) -> VariantData:
         """
         encode the variant and return VariantData
         """
-        if dst_dir != None:
+        if dst_dir is not None:
             assert dst_dir.is_dir(), 'target directory not found'
         else:
-            dst_dir = a.working_dir #, 'anchor working directory not found'
+            dst_dir = a.working_dir  # 'anchor working directory not found'
         if not a.working_dir.exists():
             a.working_dir.mkdir(parents=True)
         encoder = get_env(cls.encoder_bin)
@@ -115,10 +116,9 @@ class EncoderBase(ABC):
         )
         return VariantData.new(a, variant_id, variant_cli, logfile, bitstream, rec)
 
-
     @classmethod
-    def decode_variant(cls, a:AnchorTuple, v:VariantData, dst_dir:Path=None, md5=True) -> ReconstructionMeta:
-        if dst_dir != None:
+    def decode_variant(cls, a: AnchorTuple, v: VariantData, dst_dir: Path = None, md5=True) -> ReconstructionMeta:
+        if dst_dir is not None:
             assert a.dry_run or dst_dir.is_dir(), f'decoder output directory not found: {dst_dir}'
         else:
             dst_dir = a.working_dir
@@ -141,21 +141,22 @@ class EncoderBase(ABC):
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
 
-def parse_encoding_bitdepth(cfg:Path, encoder_id:str=None):
-    if encoder_id != None:
+def parse_encoding_bitdepth(cfg: Path, encoder_id: str = None):
+    if encoder_id is not None:
         return __encoders__[encoder_id].parse_encoding_bitdepth(cfg)
     with open(cfg, 'r') as fo:
         for line in fo:
-            m = re.match(f'(InternalBitDepth\s*:\s*)(\d*)', line)
+            m = re.match(r'(InternalBitDepth\s*:\s*)(\d*)', line)
             if m:
                 return int(m[2])
         return -1
 
-def parse_variant_qp(variant_cli:str) -> int:
-    return int(shlex.split(variant_cli)[-1])
-    
 
-def _to_cli_args(opts:dict):
+def parse_variant_qp(variant_cli: str) -> int:
+    return int(shlex.split(variant_cli)[-1])
+
+
+def _to_cli_args(opts: dict):
     """convert dict to cli options for HM & VTM softwares
     """
     args = []
@@ -166,47 +167,47 @@ def _to_cli_args(opts:dict):
             args += [k, str(v)]
     return args
 
-def get_env(var:str):
+
+def get_env(var: str):
     v = os.getenv(var)
-    if v == None:
+    if v is None:
         raise Exception(f'environment variable not set {var}')
     return v
 
 
-
-def reference_encoder_args(a:AnchorTuple, bitstream:Path, reconstruction:Path=None):
+def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path = None):
     """HM & VTM softwares share a common set of options
     """
-    cmd = { 
+    cmd = {
         "-c": f'{a.encoder_cfg}',
         "--InputFile": f'{a.reference.path}',
         "--BitstreamFile": str(bitstream),
-        "--FrameRate": round(a.reference.frame_rate) ,
+        "--FrameRate": round(a.reference.frame_rate),
         "--FrameSkip": f'{a.start_frame -1}',
-        "--FramesToBeEncoded": f'{a.frame_count}' ,
-        "--SourceWidth": f'{a.reference.width}' ,
-        "--SourceHeight": f'{a.reference.height}' ,
-        "--InputBitDepth": f'{a.reference.bit_depth}' ,
-        "--InputBitDepthC": f'{a.reference.bit_depth}' ,
+        "--FramesToBeEncoded": f'{a.frame_count}',
+        "--SourceWidth": f'{a.reference.width}',
+        "--SourceHeight": f'{a.reference.height}',
+        "--InputBitDepth": f'{a.reference.bit_depth}',
+        "--InputBitDepthC": f'{a.reference.bit_depth}',
         "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}',
         "--ChromaSampleLocTypeTopField": f'{a.reference.chroma_sample_loc_type}',
-        "--ChromaSampleLocTypeBottomField": f'{a.reference.chroma_sample_loc_type}'
+        "--ChromaSampleLocTypeBottomField": f'{a.reference.chroma_sample_loc_type}',
+        "--SEIDecodedPictureHash": "1"
+        # "--Level" ... specific to 
     }
-    if a.reference.video_full_range:
-        # If 1 then clip input video to the Rec. 709 Range on loading 
-        #   when Internal-BitDepth is less than MSBExtendedBitDepth.
-        cmd["--ClipInputVideoToRec709Range"] = 0
-    else:
-        cmd["--ClipInputVideoToRec709Range"] = 1
+    # if a.reference.video_full_range:
+    #     # If 1 then clip input video to the Rec. 709 Range on loading 
+    #     #   when Internal-BitDepth is less than MSBExtendedBitDepth.
+    #     cmd["--ClipInputVideoToRec709Range"] = 0
+    # else:
+    #     cmd["--ClipInputVideoToRec709Range"] = 1
     
-    assert a.reference.hdr_master_display == None, "Table 34: Mastering display colour volume SEI message encoder paramete"
-    assert a.reference.hdr_max_cll == None
-    assert a.reference.hdr_max_fall == None
+    assert a.reference.hdr_master_display is None, "Table 34: Mastering display colour volume SEI message encoder paramete"
+    assert a.reference.hdr_max_cll is None
+    assert a.reference.hdr_max_fall is None
 
-    if reconstruction != None:
+    if reconstruction is not None:
         cmd["--ReconFile"] = str(reconstruction)
-        # /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
-        # cmd["--ClipOutputVideoToRec709Range"] = cmd["--ClipInputVideoToRec709Range"]
     
     cmd["--PrintMSSSIM"] = 1
     cmd["--PrintHexPSNR"] = 1
@@ -220,21 +221,20 @@ class HM(EncoderBase):
     encoder_id = os.getenv("HM_VERSION", "HM")
     encoder_bin = "HM_ENCODER"
     decoder_bin = "HM_DECODER"
-    
+
     @classmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         qp = parse_variant_qp(args)
         return ['-q', str(qp)]
 
-    
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction)
         args += cls.get_variant_cli(variant_cli)
         return args
 
     @classmethod
-    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+    def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
         """
         -d,   --OutputBitDepthC        bit depth of YUV output chroma component (default: use 0 for native depth)
         --OutputColourSpaceConvert
@@ -245,32 +245,31 @@ class HM(EncoderBase):
         --ClipOutputVideoToRec709Range /* ITU-R BT.709 compliant clipping for converting say 10b to 8b */
         """
         print(f'{a.reference.bit_depth}bit::{a.reference.path}')
-        return [
-            *_to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": "0" }),
-                "--ClipOutputVideoToRec709Range"
-        ]
-    
+        return [*_to_cli_args({"-b": f'{bitstream}', "-o": f'{reconstructed}', "-d": "0"}),
+                "--ClipOutputVideoToRec709Range"]
+
     @classmethod
-    def encoder_log_metrics(cls, logp:Path) -> dict:
+    def encoder_log_metrics(cls, logp: Path) -> dict:
         summary = False
         keys = None
         values = None
         with open(logp, 'r') as logf:
-            for l in logf.readlines():
+            for line in logf.readlines():
                 if summary:
                     if keys:
                         if not values:
-                            values = l.split()[2:] # '1', 'a'
-                        # break
+                            values = line.split()[2:]  # '1', 'a'
                     else:
-                        keys = l.split()[3:] # 'Total', 'Frames', '|'
+                        keys = line.split()[3:]  # 'Total', 'Frames', '|'
                 else:
-                    summary = l.startswith('SUMMARY')
+                    summary = line.startswith('SUMMARY')
                 if values:
-                    if l.startswith(' Total Time:'):
+                    if line.startswith(' Total Time: '):
                         keys.append('EncodeTime')
-                        values.append(l.split()[-2])
+                        values.append(line.split()[-2])
+
         assert summary and keys and values
+
         metrics = {}
         for i, k in enumerate(keys):
             if k == 'Bitrate':
@@ -284,9 +283,8 @@ class HM(EncoderBase):
             elif k != 'EncodeTime':
                 continue
             metrics[k] = float(values[i])
+
         return metrics
-
-
 
 
 @register_encoder
@@ -297,7 +295,7 @@ class SCM(HM):
     decoder_bin = "SCM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         return super().get_variant_cli(args)
 
     @classmethod
@@ -309,31 +307,28 @@ class SCM(HM):
         return super().get_decoder_cmd(*args, **kwargs)
 
 
-
 @register_encoder
 class VTM(EncoderBase):
-    
+
     encoder_id = os.getenv("VTM_VERSION", "VTM")
     encoder_bin = "VTM_ENCODER"
     decoder_bin = "VTM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         qp = parse_variant_qp(args)
         return ['-q', str(qp)]
 
-
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction)
         args += cls.get_variant_cli(variant_cli)
         # --LMCSSignalType         Input signal type: 0:SDR, 1:HDR-PQ, 2:HDR-HLG
         return args
 
     @classmethod
-    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
-        return _to_cli_args({ "-b": f'{bitstream}', "-o": f'{reconstructed}' })
-
+    def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
+        return _to_cli_args({"-b": f'{bitstream}', "-o": f'{reconstructed}'})
 
 
 @register_encoder
@@ -344,16 +339,16 @@ class JM(EncoderBase):
     decoder_bin = "JM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         qp = parse_variant_qp(args)
         qp_args = f'-p QPISlice={qp} -p QPPSlice={qp}'
         return shlex.split(qp_args)
 
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         # tracefile = a.anchor.working_dir / f'{a.basename}.enc.trace.txt'
         # statsfile = a.anchor.working_dir / f'{a.basename}.enc.stats.dat'
-        args = [ 
+        args = [
             "-d", f'{a.encoder_cfg}',
             # "-p", "DisplayEncParams=1",
             "-p", f'InputFile={a.reference.path}',
@@ -368,28 +363,27 @@ class JM(EncoderBase):
             "-p", f'SourceBitDepthLuma={a.reference.bit_depth}',
             "-p", f'SourceBitDepthChroma={a.reference.bit_depth}',
             # "-p", f'TraceFile={tracefile}',
-            # "-p", f'StatsFile={statsfile}',
-
+            # "-p", f'StatsFile={statsfile}'
         ]
 
         if a.reference.interleaved:
             args += ["-p", "Interleaved=1"]
 
         if a.reference.chroma_format == ChromaFormat.RGB:
-            args += ["-p", 'RGBInput=1', "-p", 'StandardRange=1'] # 1 = full range
+            args += ["-p", 'RGBInput=1', "-p", 'StandardRange=1']  # 1 = full range
         else:
             args += ["-p", 'RGBInput=0', "-p", 'StandardRange=0']
-        
-        if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
-            args += ["-p", f'YUVFormat=0']
-        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_420:
-            args += ["-p", f'YUVFormat=1']
-        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_422:
-            args += ["-p", f'YUVFormat=2']
-        elif a.reference.chroma_subsampling ==  ChromaSubsampling.CS_444:
-            args += ["-p", f'YUVFormat=3']
 
-        if reconstruction != None:
+        if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
+            args += ["-p", 'YUVFormat=0']
+        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_420:
+            args += ["-p", 'YUVFormat=1']
+        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_422:
+            args += ["-p", 'YUVFormat=2']
+        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_444:
+            args += ["-p", 'YUVFormat=3']
+
+        if reconstruction is not None:
             args += ["-p", f'ReconFile={reconstruction}']
 
         args += cls.get_variant_cli(variant_cli)
@@ -397,11 +391,10 @@ class JM(EncoderBase):
         return args
 
     @classmethod
-    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
-        args = [ "-i", f'{bitstream}', "-o", f'{reconstructed}' ] 
-        # "-r", f'{a.reference.path}' ] 
+    def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
+        args = ["-i", f'{bitstream}', "-o", f'{reconstructed}']  # "-r", f'{a.reference.path}']
         return args
-    
+
 
 @register_encoder
 class ETM(EncoderBase):
@@ -411,13 +404,12 @@ class ETM(EncoderBase):
     decoder_bin = "ETM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args:str) -> List[str]:
+    def get_variant_cli(cls, args: str) -> List[str]:
         qp = parse_variant_qp(args)
         return ['-q', str(qp)]
 
-
     @classmethod
-    def get_encoder_cmd(cls, a:AnchorTuple, variant_cli:str, bitstream:Path, reconstruction:Path=None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         assert a.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
         assert a.reference.bit_depth in [8, 10], f'invalid reference bitdepth {a.reference.bit_depth} | supported: [8,10]'
         assert not a.reference.interleaved, 'interleaved format not supported'
@@ -440,28 +432,24 @@ class ETM(EncoderBase):
             '--chroma_format', f'{cf}',
             # '--hdr_metric' requires specific  compilation flags
         ]
-        
+
         assert a.reference.chroma_sample_loc_type == 2, 'chroma_sample_loc_type != 2 not implemented'
 
         if reconstruction:
-            # --output_bit_depth / output bitdepth (8, 10)(default: same as input bitdpeth)
-            args += ['-r', reconstruction ]
-        
-        # MS-SSIM_Y is printed by default, no hex PSNR
+            args += ['-r', reconstruction]
 
         args += cls.get_variant_cli(variant_cli)
-        
+
         return args
 
     @classmethod
-    def get_decoder_cmd(cls, bitstream:Path, reconstructed:Path, a:AnchorTuple) -> List[str]:
+    def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
         opl = bitstream.with_suffix('.opl')
         args = [
             "-i", f'{bitstream}',
             "-o", f'{reconstructed}',
-            "--opl", f'{opl}',
-            # "-f", f'{a.reference.frame_count}',
-            "--output_bit_depth", f'{a.reference.bit_depth}', # defaults to 8 otherwise
-            "-v", '1' # 0=quiet, 2=verbose
+            "--opl", f'{opl}',  # "-f", f'{a.reference.frame_count}',
+            "--output_bit_depth", f'{a.reference.bit_depth}',  # defaults to 8 otherwise
+            "-v", '1'  # 0=quiet, 2=verbose
         ]
         return args

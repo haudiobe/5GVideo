@@ -10,16 +10,14 @@ from metrics import bitstream_size, compute_metrics, anchor_metrics_to_csv
 from anchor import AnchorTuple, ReconstructionMeta, Metric, reference_sequences_dict, iter_anchors, iter_variants
 
 
-
-
-def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False, vmaf=True):
+def compute_anchor_metrics(*anchors: AnchorTuple, decode=True, overwrite=False, dry_run=False, vmaf=True):
     for a in anchors:
         a.dry_run = dry_run
         enc = get_encoder(a.encoder_id)
-        assert enc != None, f'unknown encoder {a.encoder_id}'
+        assert enc is not None, f'unknown encoder {a.encoder_id}'
         for vf, vd in iter_variants(a):
-            assert vd != None, 'bitstream metadata not found'
-            if (vd.metrics != None) and (not overwrite):
+            assert vd is not None, 'bitstream metadata not found'
+            if (vd.metrics is not None) and (not overwrite):
                 print('[skipping, use -y to overwrite] found existing metrics in ', vf)
                 continue
             if decode:
@@ -33,7 +31,7 @@ def compute_anchor_metrics(*anchors:Iterable[AnchorTuple], decode=True, overwrit
         anchor_metrics_to_csv(a)
 
 
-def encode_anchor_bitstreams(*anchors:Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False):
+def encode_anchor_bitstreams(*anchors: Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False):
     for a in anchors:
         a.dry_run = dry_run
         enc = get_encoder(a.encoder_id)
@@ -53,7 +51,7 @@ def parse_args():
     parser.add_argument('--scenario_dir', required=True, type=str, help='scenario directory')
     parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
     parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
-    parser.add_argument('-s','--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
+    parser.add_argument('-s', '--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
     parser.add_argument('-y', '--overwrite', required=False, action='store_true', default=False, help='overwrite if data already exists')
     parser.add_argument('--dry-run', required=False, action='store_true', default=False)
     args = parser.parse_args()
@@ -77,7 +75,7 @@ def parse_args():
         parser.error(f'invalid command "{args.cmd}" must be one of {cmds}')
     
     anchor_keys = None
-    if args.key != None:
+    if args.key is not None:
         anchor_keys = [args.key]
 
     return args.cmd, scenario_dir, anchors_csv, anchor_keys, references_csv, sequences_dir, cfg_dir, args.dry_run, args.overwrite
