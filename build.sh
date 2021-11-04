@@ -1,19 +1,26 @@
-#!/bin/sh
+#!/usr/bin/sh
 
-# Scenario 5
-docker build \
- --build-arg HDRTOOLS_VERSION=tags/v0.23 \
- --build-arg JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87 \
- --build-arg HM_VERSION=tags/HM-16.22 \
- --build-arg SCM_VERSION=tags/HM-16.21+SCM-8.8 \
- --build-arg VTM_VERSION=tags/VTM-10.0 \
- -t anchortools:Scenario-5 -f ./docker/Dockerfile .
+set -e
 
-# Scenario 3
-docker build \
- --build-arg HDRTOOLS_VERSION=tags/v0.23 \
- --build-arg JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87 \
- --build-arg HM_VERSION=tags/HM-16.22 \
- --build-arg SCM_VERSION=tags/HM-16.21+SCM-8.8 \
- --build-arg VTM_VERSION=tags/VTM-13.2 \
- -t anchortools:Scenario-3 -f ./docker/Dockerfile .
+# opts=--no-cache
+opts=
+
+# build Dockerfile.worker dependencies
+if [ "$#" -ne 1 ] || [ "$1" = "base" ]; then
+    docker build $opts -t vcc-base:latest -f ./docker/Dockerfile.base ./docker
+fi
+
+if [ "$#" -ne 1 ] || [ "$1" = "HM" ]; then
+    docker build $opts -t vcc-hm:latest -f ./docker/Dockerfile.HM ./docker
+fi
+
+if [ "$#" -ne 1 ] || [ "$1" = "JM" ]; then
+    docker build $opts -t vcc-jm:latest -f ./docker/Dockerfile.JM ./docker
+fi
+
+# if [ "$#" -ne 1 ] || [ "$1" = "VTM" ]; then
+#     docker build $opts -t vcc-vtm:latest -f ./docker/Dockerfile.VTM ./docker
+# fi
+
+# build Dockerfile.queue & Dockerfile.worker
+docker-compose build
