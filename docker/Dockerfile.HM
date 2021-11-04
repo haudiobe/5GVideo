@@ -1,0 +1,44 @@
+FROM vcc-base:latest
+WORKDIR /home/deps
+
+# HM16.22
+RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/HM.git && \
+  cd ./HM && git checkout tags/HM-16.22
+RUN mkdir -p ./HM/build && cd ./HM/build && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release && \
+  make -j 4
+RUN mkdir ./HM16.22 && mv ./HM/bin ./HM16.22
+
+ENV HM16_22_ENCODER=/home/deps/HM16.22/bin/TAppEncoderStatic
+ENV HM16_22_DECODER=/home/deps/HM16.22/bin/TAppDecoderStatic
+
+# HM16.23
+RUN rm -rf ./HM/build && rm -rf ./HM/bin 
+RUN cd ./HM && git checkout tags/HM-16.23
+RUN mkdir ./HM/build && cd ./HM/build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
+RUN mkdir ./HM16.23 && mv ./HM/bin ./HM16.23
+
+ENV HM16_23_ENCODER=/home/deps/HM16.23/bin/TAppEncoderStatic
+ENV HM16_23_DECODER=/home/deps/HM16.23/bin/TAppDecoderStatic
+
+ENV SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
+
+# SCM8.8
+RUN rm -rf ./HM/build && rm -rf ./HM/bin
+RUN cd ./HM && git checkout tags/HM-16.21+SCM-8.8
+RUN mkdir ./HM/build && cd ./HM/build && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release && \
+  make -j 4
+RUN mkdir ./SCM8.8 && mv ./HM/bin ./SCM8.8
+
+ENV SCM8_8_ENCODER=/home/deps/SCM8.8/bin/TAppEncoderStatic
+ENV SCM8_8_DECODER=/home/deps/SCM8.8/bin/TAppDecoderStatic
+
+# HM16.24
+RUN rm -rf ./HM/build && rm -rf ./HM/bin 
+RUN cd ./HM && git checkout tags/HM-16.24
+RUN mkdir ./HM/build && cd ./HM/build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
+RUN mkdir ./HM16.24 && mv ./HM/bin ./HM16.24
+
+ENV HM16_24_ENCODER=/home/deps/HM16.24/bin/TAppEncoderStatic
+ENV HM16_24_DECODER=/home/deps/HM16.24/bin/TAppDecoderStatic

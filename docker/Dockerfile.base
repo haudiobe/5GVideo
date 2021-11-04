@@ -1,0 +1,45 @@
+FROM ubuntu:20.04
+
+## common dependencies ###
+ARG HDRTOOLS_VERSION=tags/v0.23
+ARG VMAF_VERSION=tags/v2.1.1
+
+ENV TZ="Europe/Paris"
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt update && apt install -y --no-install-recommends \
+    git build-essential wget ca-certificates unzip \
+    gcc-7 g++-7 gcc-8 g++-8 gcc-9 g++-9 cmake \
+    python3.9 python3.9-dev python3.9-distutils python3-pip
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 7
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 7
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 8
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-8 8
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 9
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 9
+
+WORKDIR /home/deps 
+
+## HDRtools ###
+RUN git clone https://gitlab.com/standards/HDRTools.git && \
+  cd ./HDRTools && git checkout ${HDRTOOLS_VERSION}
+
+RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
+  cmake .. -DCMAKE_BUILD_TYPE=Release && \
+  make -j 4
+
+ENV HDRMETRICS_TOOL=/home/deps/HDRTools/build/bin/HDRMetrics
+ENV HDRCONVERT_TOOL=/home/deps/HDRTools/build/bin/HDRConvert
+ENV PATH=/home/deps/HDRTools/build/bin/tools:$PATH
+
+## VMAF ###
+RUN apt install --assume-yes --no-install-recommends nasm ninja-build doxygen && \
+  pip install --upgrade pip && pip install --no-cache-dir meson cython numpy
+RUN git clone https://github.com/Netflix/vmaf.git && cd ./vmaf && git checkout ${VMAF_VERSION} 
+RUN apt install --assume-yes --no-install-recommends python3-dev
+RUN cd ./vmaf && make
+ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmafossexec
+ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
+
+ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json
