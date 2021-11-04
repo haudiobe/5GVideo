@@ -1,3 +1,4 @@
+import re
 import subprocess
 import json
 import hashlib
@@ -29,6 +30,7 @@ class ChromaSubsampling(Enum):
 
 
 class TransferFunction(Enum):
+    NONE = "0"
     BT709 = "1"
     BT2020_SDR = "14"
     BT2020_HLG = "18"
@@ -67,7 +69,14 @@ def run_process(log: str, *cmd, dry_run=False, verbose=True):
         print(out.rstrip('\n'))
         if proc.poll() is not None:
             proc.stdout.flush()
-            print(out.rstrip('\n'))
+            while True:
+                l = proc.stdout.readline()
+                if l:
+                    out = l.decode('utf-8')
+                    logfile.write(out)
+                else:
+                    break
+            # print(out.rstrip('\n'))
             print(f'\n# exit code: {proc.returncode} - {cmd[0]}')
             print("#" * 128 + "\n")
             if proc.returncode != 0:
@@ -115,6 +124,7 @@ class VideoInfo:
         assert self.packing in ['planar', 'interleaved'], f'invalid packing: {self.packing}'
         assert self.scan in ['progressive', 'interlaced'], f'invalid scan: {self.scan}'
         assert self.chroma_subsampling in [ChromaSubsampling.CS_400, ChromaSubsampling.CS_420, ChromaSubsampling.CS_422, ChromaSubsampling.CS_444], f'invalid subsampling: {self.chroma_subsampling}'
+        """
         assert self.bit_depth in [8, 10, 12, 16], f'invalid bitdepth: {self.bit_depth}'
         assert self.colour_primaries in [ColorPrimaries.BT_709, ColorPrimaries.BT_2020], f'unsupported colour primaries, expected 1 or 9, got: {self.colour_primaries}'
 
@@ -124,6 +134,7 @@ class VideoInfo:
         elif self.colour_primaries == ColorPrimaries.BT_2020:
             assert self.matrix_coefficients == MatrixCoefficients.BT_2020, 'unsupported matrix coefficient for colour primaries 9'
             assert self.transfer_characteristics in [TransferFunction.BT2020_SDR, TransferFunction.BT2020_HLG, TransferFunction.BT2020_HLG], 'unsupported transfer characteristics for colour primaries 9'
+        """        
 
     @property
     def interleaved(self):

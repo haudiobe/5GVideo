@@ -1,19 +1,19 @@
-
 from pathlib import Path
 from typing import Iterable, List, Tuple, Any
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-
 plt.ioff()
+
+from matplotlib.figure import Figure
 
 import numpy as np
 # from numpy.typing import ArrayLike, DTypeLike
 
 import scipy.interpolate
 
-from anchor import AnchorTupleCtx, VariantData, VariantMetricSet, Metric, iter_variants, AnchorTuple
-import sys
+from anchor import VariantData, VariantMetricSet, Metric, iter_variants, AnchorTuple
 import csv
+
+import click
 
 
 def sort_rates_on(rates, metric):
@@ -99,34 +99,27 @@ def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, cs
             writer.writerow(row)
 
 
-def compare_anchors_directories(refdir: Path, testdir: Path, metrics: Iterable[str], strict=False, sanitize=True, plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
+def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[str], strict=False, sanitize=True, save_plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
 
-    def load_anchor_directory(ad: Path) -> Tuple[AnchorTuple, List[VariantData]]:
-        assert ad.is_dir(), f'not a directory {ad}'
-        ctx, anchor_key = AnchorTupleCtx.from_anchor_directory(ad)
-        a = ctx.iter_anchors(keys=[anchor_key])[0]
-        v = [vdata for (_, vdata) in iter_variants(a)]
-        return a, v
-
-    aref, vref = load_anchor_directory(refdir)
-    atest, vtest = load_anchor_directory(testdir)
+    anchor_variants = [v[1] for v in iter_variants(anchor)]
+    test_variants = [v[1] for v in iter_variants(test)]
 
     vms = VariantMetricSet()
     fig = None
     for key in metrics:
         try:
             # plot_title = f'RD-curve & BD-rate for {key}\n'\
-            #     f'[sequence] {aref.reference.sequence["Key"]} | {aref.reference.sequence["Name"]}\n'\
-            #     f'[anchor] {aref.encoder_cfg.name} @ {aref._variants}\n'\
-            #     f'[test] {atest.encoder_cfg.name} @ {atest._variants}'
-            fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize, title=None)
+            #     f'[sequence] {anchor.reference.sequence["Key"]} | {anchor.reference.sequence["Name"]}\n'\
+            #     f'[anchor] {anchor.encoder_cfg.name} @ {anchor._variants}\n'\
+            #     f'[test] {test.encoder_cfg.name} @ {test._variants}'
+            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize, title=None)
             vms[key] = f'{round(bd, 3):.3f}'
-            if plots and (key in plots):
+            if save_plots and (key in save_plots):
                 # t = f'bd-rate @{key} | {vms[key]}'
                 # if sanitize:
                 #     t += ' [sanitized]'
-                # fig = rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=aref.anchor_key, test_label=atest.anchor_key, show=False)
-                fname = testdir.parent / 'Metrics' / f'{refdir.name}.{testdir.name}.{key}.png'.lower()
+                # fig = rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=anchor.anchor_key, test_label=test.anchor_key, show=False)
+                fname = test.working_dir / 'Metrics' / f'{anchor.working_dir.name}.{test.working_dir.name}.{key}.png'.lower()
                 fig.savefig(fname)
                 plt.close()
 
@@ -137,7 +130,7 @@ def compare_anchors_directories(refdir: Path, testdir: Path, metrics: Iterable[s
                 raise
             vms[key] = str(e)
 
-    return aref.reference.sequence['Key'], vms
+    return anchor.reference.sequence['Key'], vms
 
 
 def _parse_filter(fp: Path):
@@ -148,21 +141,13 @@ def _parse_filter(fp: Path):
         return fp, None
 
 
-def compare_encoder_configs(ref: Path, test: Path, metrics: List[str], strict=False):
+def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metrics: List[str], strict=False):
 
-    refdir, refkey = _parse_filter(ref)
-    refctx = AnchorTupleCtx(scenario_dir=refdir)
-    ref_anchors = refctx.iter_anchors(cfg_keys=[refkey])
-
-    testdir, testkey = _parse_filter(test)
-    testctx = AnchorTupleCtx(scenario_dir=testdir)
-    test_anchors = testctx.iter_anchors(cfg_keys=[testkey])
-
-    assert len(ref_anchors) == len(test_anchors), f'reference has {len(ref_anchors)} anchors, test has {len(test_anchors)} anchors.'
+    assert len(anchors) == len(tests), f'reference has {len(anchors)} anchors, test has {len(tests)} anchors.'
 
     bd_rates = []
 
-    for aref, atest in zip(ref_anchors, test_anchors):
+    for aref, atest in zip(anchors, tests):
         vref = [v for (_, v) in iter_variants(aref)]
         vtest = [v for (_, v) in iter_variants(atest)]
         arates = {}
@@ -352,38 +337,33 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None
     return fig, avg_diff, R1, DIST1, R2, DIST2
 
 
-def main():
+@click.command()
+@click.option('-s/-c', required=True, default=True, help="whether anchor/test keys are:\n 1. sequence IDs, eg. '-s S1-A01-264 S1-A01-265'\n 2. encoder configs IDs, eg. '-c S1-JM-01 S1-HM-01'")
+@click.argument('anchor', nargs=1)
+@click.argument('test', nargs=1)
+def main(s, anchor, test):
 
-    assert len(sys.argv) == 3
-    ref = Path(sys.argv[1])
-    test = Path(sys.argv[2])
-    print("Anchor:", ref)
-    print("Test:", test)
-    metrics = [m.key for m in (Metric.PSNR_Y, Metric.PSNR, Metric.MSSSIM, Metric.VMAF)]
+    # TODO: check support HDR keys
+    metric_keys = (Metric.PSNR_Y, Metric.PSNR, Metric.MSSSIM, Metric.VMAF)
 
-    if ref.is_dir() and (ref.parent / 'streams.csv').exists() and test.is_dir() and (test.parent / 'streams.csv').exists():
-        # eg. compare.py ./scenario/codec1/a_ker1 ./scenario/codec2/a_ker2
-        plots = [m.key for m in (
-            Metric.PSNR_Y,
-            Metric.PSNR,
-            Metric.MSSSIM,
-            Metric.VMAF)]
-        seqid, r = compare_anchors_directories(ref, test, metrics, strict=True, sanitize=True, plots=plots)
-        r['reference'] = seqid
-        outp = test.parent / 'Metrics' / f'{ref.name}.{test.name}.csv'.lower()
-        csv_dump([r], outp)
+    if s:  # eg. '-s S1-A01-264 S1-A01-265'
+        anchor = AnchorTuple.load(anchor)
+        test = AnchorTuple.load(test)
+        metrics = [m.key for m in metric_keys]
+        compare_sequences(anchor, test, metrics, strict=True, sanitize=True, save_plots=metrics)
 
     else:
-        # eg. compare.py ./scenario/codec1@cfg_id1 ./scenario/codec2@cfg_id2
-        _, refkey = _parse_filter(ref)
-        testdir, testkey = _parse_filter(test)
-        outp = testdir / 'Metrics' / f'{refkey}.{testkey}.csv'.lower()
         data = []
-        for (seqid, r) in compare_encoder_configs(ref, test, metrics, strict=True):
+        anchors = AnchorTuple.iter_anchors(cfg_keys=[anchor])
+        tests = AnchorTuple.iter_anchors(cfg_keys=[test])
+        outdir = Path('.') if tests[-1] is None else tests[-1].working_dir 
+        outp = outdir / 'Metrics' / f'{anchor}.{test}.csv'.lower()
+        metrics = [m.key for m in metric_keys]
+        for (seqid, r) in compare_anchors(anchors, tests, metrics, strict=True, sanitize=True):
             r['reference'] = seqid
             data.append(r)
-        csv_dump(data, outp)
 
+        csv_dump(data, outp)
 
 if __name__ == "__main__":
     main()
