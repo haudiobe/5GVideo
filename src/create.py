@@ -1,11 +1,8 @@
-#!.venv/bin/python3
-
 import argparse
 from pathlib import Path
 
-from typing import Iterable
-
 from encoders import get_encoder
+from encoders import encode_anchor_bitstreams
 from metrics import bitstream_size, compute_metrics, anchor_metrics_to_csv
 from anchor import AnchorTuple, ReconstructionMeta, Metric, reference_sequences_dict, iter_anchors, iter_variants
 
@@ -16,12 +13,12 @@ def compute_anchor_metrics(*anchors: AnchorTuple, decode=True, overwrite=False, 
         enc = get_encoder(a.encoder_id)
         assert enc is not None, f'unknown encoder {a.encoder_id}'
         for vf, vd in iter_variants(a):
-            assert vd is not None, 'bitstream metadata not found'
+            assert vd is not None, f'bitstream metadata not found: {vf}'
             if (vd.metrics is not None) and (not overwrite):
                 print('[skipping, use -y to overwrite] found existing metrics in ', vf)
                 continue
             if decode:
-                rec = enc.decode_variant(a, vd, md5=True)
+                rec = enc.decode_variant(a, vd, md5=(not a.dry_run))
                 vd.reconstruction = rec.to_dict()
             else:
                 log_file = getattr(vd.reconstruction, 'log-file', None)
@@ -30,7 +27,7 @@ def compute_anchor_metrics(*anchors: AnchorTuple, decode=True, overwrite=False, 
             vd.save_as(vf)
         anchor_metrics_to_csv(a)
 
-
+"""
 def encode_anchor_bitstreams(*anchors: Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False):
     for a in anchors:
         a.dry_run = dry_run
@@ -42,7 +39,7 @@ def encode_anchor_bitstreams(*anchors: Iterable[AnchorTuple], decode=True, overw
                 continue
             vd = enc.encode_variant(a, variant_id, variant_cli)
             vd.save_as(p)
-
+"""
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -84,12 +81,13 @@ def parse_args():
 def main():
 
     cmd, scenario_dir, anchors_csv, anchor_keys, references_csv, sequences_dir, cfg_dir, dry_run, y = parse_args()
+    print(references_csv, sequences_dir)
+    assert Path(references_csv).exists() and Path(sequences_dir).exists()
     refs = reference_sequences_dict(references_csv, sequences_dir)
-    print({k: v.sequence["URI"] for k, v in refs.items()})
     anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=anchor_keys)
 
     if cmd == "decoder":
-        compute_anchor_metrics(*anchors, decode=True, overwrite=y, dry_run=dry_run, vmaf=True)
+        compute_anchor_metrics(*anchors, decode=True, overwrite=y, dry_run=dry_run, vmaf=False)
     elif cmd == "metrics":
         compute_anchor_metrics(*anchors, decode=False, overwrite=y, dry_run=dry_run, vmaf=True)
     elif cmd == "csv_metrics":

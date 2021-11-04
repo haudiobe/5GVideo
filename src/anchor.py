@@ -74,6 +74,15 @@ class Metric(enum.Enum):
     BITRATELOG = M("BitrateLog")
     ENCODETIME = M("EncodeTime")
     DECODETIME = M("DecodeTime")
+    DELTAE100 = M("DELTAE100")
+    WTPSNR = M("WTPSNR")
+    WTPSNR_Y = M("WTPSNR_Y")
+    WTPSNR_U = M("WTPSNR_U")
+    WTPSNR_V = M("WTPSNR_V")
+    GSSIM = M("GSSIM")
+    PSNR_DE0100 = M("PSNR_DE0100")
+    PSNR_MD0100 = M("PSNR_MD0100")
+    PSNR_L0100 = M("PSNR_L0100")
 
     @classmethod
     def json_dict(cls, v: 'VariantMetricSet'):
@@ -353,6 +362,18 @@ class VariantData:
 
 class AnchorTuple:
 
+    @classmethod
+    def load(cls, anchor_key:str, root_dir=Path('/data')) -> 'AnchorTuple':
+        anchor_dir = anchor_path_from_key(anchor_key, root_dir)
+        ctx = AnchorTupleCtx(scenario_dir=anchor_dir.parent)
+        anchors = ctx.iter_anchors(keys=[anchor_key])
+        assert len(anchors) == 1, 'duplicate anchor key found in streams.csv'
+        return anchors[0]
+
+    # refctx = AnchorTupleCtx(scenario_dir=refdir)
+    # ref_anchors = refctx.iter_anchors(cfg_keys=[refkey])
+
+
     def __init__(self, anchor_dir: Path, reference: VideoSequence, encoder_id: str, encoder_cfg: str, variants: str, anchor_key: str, description: str = None, start_frame: int = 0, frame_count: int = None, dry_run: bool = False):
         self._working_dir = anchor_dir
         self._encoder_id = encoder_id
@@ -452,7 +473,8 @@ class AnchorTuple:
 
 def ref_location(row) -> str:
     loc = row[RefSequenceList.LOC]
-    return f'{loc}/{loc}.json'
+    name = row[RefSequenceList.NAME]
+    return f'{loc}/{name}.json'
 
 
 def iter_ref_locations(reference_list: Path) -> Iterable[str]:
@@ -529,7 +551,7 @@ def iter_variants(a: AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
         yield vfp, data
 
 
-def anchor_path_from_key(key: str) -> Path:
+def anchor_path_from_key(key: str, root_dir:Path ) -> Path:
     arr = key.split('-')
     if len(arr) == 3:
         scenario, _, enc = arr
@@ -545,7 +567,7 @@ def anchor_path_from_key(key: str) -> Path:
             scenario = 'Scenario-5-Gaming'
         else:
             raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
-        return Path(f'./Bitstreams/{scenario}/{enc}/{key}/')
+        return root_dir / f'Bitstreams/{scenario}/{enc}/{key}/'
     
     raise ValueError(f'Invalid anchor key "{key}"')
 
