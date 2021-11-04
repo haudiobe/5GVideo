@@ -1,9 +1,0 @@
-{
-    "Contact": {
-        "Company": "reporter company",
-        "name": "reporter name",
-        "e-mail": "reporter@email.co"
-    },
-    "meeting": "meeting #id",
-    "input": "document #id"
-}

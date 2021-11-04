@@ -1,6 +1,0 @@
-key,file,origdate,md5,status,company,e-mail,vdate,document,type,information
-S3-A59-265_22,/data/Anchors/Scenario-3/S3-A59-265/S3-A59-265-22.json,Thu Feb 25 01:38:28 2021,2ea1ed83608de253bfc1c2e206632caa,failed,reporter company,reporter@email.co,07/06/21,document #id,decoder,S3-A59-265_22_verification_0_decoder_070621.log
-S3-A59-265_27,/data/Anchors/Scenario-3/S3-A59-265/S3-A59-265-27.json,Thu Feb 25 01:38:28 2021,38c98cdd2f20dc0aa5414ba181ebc35d,failed,reporter company,reporter@email.co,07/06/21,document #id,decoder,S3-A59-265_27_verification_0_decoder_070621.log
-S3-A59-265_32,/data/Anchors/Scenario-3/S3-A59-265/S3-A59-265-32.json,Thu Feb 25 01:38:28 2021,996eb6cddbafcfd57c7e8902bc69ad0a,failed,reporter company,reporter@email.co,07/06/21,document #id,decoder,S3-A59-265_32_verification_0_decoder_070621.log
-S3-A59-265_37,/data/Anchors/Scenario-3/S3-A59-265/S3-A59-265-37.json,Thu Feb 25 01:38:28 2021,3a18c8798a7d3e2240c47b110f9f3af4,failed,reporter company,reporter@email.co,07/06/21,document #id,decoder,S3-A59-265_37_verification_0_decoder_070621.log
-S3-A59-265_42,/data/Anchors/Scenario-3/S3-A59-265/S3-A59-265-42.json,Thu Feb 25 01:38:29 2021,9086a7d4a6c3ff4d5b84795f4b8a33c9,failed,reporter company,reporter@email.co,07/06/21,document #id,decoder,S3-A59-265_42_verification_0_decoder_070621.log
