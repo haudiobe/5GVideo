@@ -1,9 +1,8 @@
-#!/usr/bin/sh
-
+#!/bin/sh
 set -e
 
 # opts=--no-cache
-opts=
+opts=''
 
 # build Dockerfile.worker dependencies
 if [ "$#" -ne 1 ] || [ "$1" = "base" ]; then

@@ -16,13 +16,13 @@ services:
     expose:
      - "6379"
     volumes:
-      - ./tmp/redis:/data
-      - ./docker/cfg/redis.conf:/usr/local/etc/redis/redis.conf
+      - './tmp/redis:/data'
+      - './docker/cfg/redis/redis.conf:/usr/local/etc/redis/redis.conf'
   # task monitoring dashboard web browsers
   status:
     image: mher/flower
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://queue:6379/0
       - FLOWER_PORT=8888
     ports:
       - "8888:8888"
@@ -35,11 +35,11 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://queue:6379/0
       - CELERY_BACKEND=redis://queue:6379/1
-    command: |
-      celery -A tasks worker --loglevel=info --concurrency=4 -n worker@%h
+    command: [ "celery -A tasks worker --loglevel=info --concurrency=4 -n worker@%h"]
     depends_on:
       - queue
     volumes:
+      - './src:/home/5GVideo'
       - type: bind
         source: ${VCC_DATA_DIR}
         target: /data

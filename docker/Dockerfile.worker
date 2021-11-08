@@ -29,3 +29,4 @@ COPY ./src/tasks.requirements.txt ./
 RUN python3 -m pip install -r ./tasks.requirements.txt
 
 COPY ./src/*.py ./
+COPY ./docker/cfg/HDRTools /home/cfg
