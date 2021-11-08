@@ -91,7 +91,7 @@ def __pixel_format(v: VideoSequence) -> int:
 
 
 def conversion_path(sequence: Path, suffix: str) -> Path:
-    return sequence.parent / f'{sequence.stem}.conv-{suffix}'
+    return sequence.parent / 'tmp' / f'{sequence.stem}{suffix}'
 
 
 # return a modified VideoSequence obj pointing to the 10bit conversion
@@ -175,7 +175,7 @@ def as_exr2020_sequence(yuv_in: VideoSequence) -> VideoSequence:
 
 
 def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSequence, logfile: Path = None) -> List[str]:
-
+    
     opts = [
         '-p', f'SourceFile={yuv_in.path}',
         '-p', f'OutputFile={exr_out.path}',
@@ -208,7 +208,7 @@ def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSeque
         '-p', 'OutputBitDepthCmp2=10',
         '-p', 'OutputColorSpace=1',  # CM_RGB
         '-p', 'OutputColorPrimaries=1',  # BT.2020
-        '-p', f'OutputSampleRange=1',  # Full range
+        '-p', 'OutputSampleRange=1',  # Full range
         '-p', 'OutputTransferFunction=0',
 
         '-p', f'NumberOfFrames={yuv_in.frame_count}',

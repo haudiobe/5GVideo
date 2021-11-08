@@ -161,11 +161,6 @@ def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, dry_run=False, cfg
     run = ['-f', str(cfg)] if cfg else []
     run += [
         '-p', 'EnablehexMetric=1',  # the parser collects hex values only
-        # '-p', 'EnableJVETPSNR=1',
-        # '-p', 'EnableShowMSE=1',
-        # '-p', 'EnablePSNR=1',
-        # '-p', 'EnableSSIM=1',
-        # '-p', 'EnableMSSSIM=1',
         '-p', 'SilentMode=0',
         '-p', f'NumberOfFrames={dist.frame_count}'
     ]
@@ -263,7 +258,7 @@ def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0
 
 
 def compute_sdr_metrics(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', None)  # '/data/Cfg/HDRMetrics_PSNR_MSSSIM.cfg')
+    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetrics_PSNR_MSSSIM.cfg')
 
     conv = get_anchor_conversion_type(a)
     if conv == Conversion.NONE:
@@ -291,24 +286,22 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData):
     
 
 def compute_hdr_metrics_yuv(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/data/Cfg/HDRMetrics_wtPSNR.cfg')
+    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetricsYUV_PQ10.cfg')
     dist = VideoSequence.from_sidecar_metadata(a.working_dir / f'{vd.variant_id}.yuv.json')
     
     cfg = hdr_metrics_cfg if hdr_metrics_cfg is None else Path(hdr_metrics_cfg)
     
     d = hdrtools_metrics(a.reference, dist, dry_run=a.dry_run, cfg= cfg)
-    print(d)
     result = {
         Metric.WTPSNR_Y.key: d["wtPSNR-Y"],
         Metric.WTPSNR_U.key: d["wtPSNR-U"],
-        Metric.WTPSNR_V.key: d["wtPSNR-V"],
-        Metric.GSSIM.key: d["GSSIM-Y"]
+        Metric.WTPSNR_V.key: d["wtPSNR-V"]
     }
     return VariantMetricSet(result)
 
 
 def compute_hdr_metrics_exr(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/data/Cfg/HDRMetrics_DeltaE100.cfg')
+    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetrics_DeltaE100.cfg')
  
     ref = as_exr2020_sequence(a.reference)
     fp = ref.path.with_suffix('.json')

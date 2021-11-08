@@ -7,6 +7,7 @@ from typing import Any, List
 from utils import run_process, ChromaFormat, ChromaSubsampling, VideoSequence
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
+import logging as logger
 
 __encoders__ = {}
 
@@ -206,9 +207,9 @@ def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path
         "--InputBitDepth": f'{a.reference.bit_depth}',
         "--InputBitDepthC": f'{a.reference.bit_depth}',
         "--InputChromaFormat": f'{a.reference.chroma_subsampling.value}',
-        "--MatrixCoefficients": a.reference.matrix_coefficients,
-        "--TransferCharacteristics": a.reference.transfer_characteristics,
-        "--ColourPrimaries": a.reference.colour_primaries,
+        "--MatrixCoefficients": a.reference.matrix_coefficients.value,
+        "--TransferCharacteristics": a.reference.transfer_characteristics.value,
+        "--ColourPrimaries": a.reference.colour_primaries.value,
         "--VideoFullRange": "1" if a.reference.video_full_range else "0",
         "--ChromaSampleLocTypeTopField": f'{a.reference.chroma_sample_loc_type}',
         "--ChromaSampleLocTypeBottomField": f'{a.reference.chroma_sample_loc_type}',
@@ -222,7 +223,7 @@ def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path
         p = r'([A-Z]+\(\d+\,\d+\))'
         q = r'([A-Z]+)\((\d+)\,(\d+)\)'
         parsed = re.findall(p, a.reference.hdr_master_display)
-        parsed = [re.match(q, m).group(0) for m in parsed]
+        parsed = [re.match(q, m).groups() for m in parsed]
         parsed = {k: (x,y) for (k, x, y) in parsed}
         cmd["SEIMasteringDisplayColourVolume"] = 1
         cmd["SEIMasteringDisplayPrimaries"] = ','.join([*parsed['G'], *parsed['B'], *parsed['R']])
@@ -264,6 +265,7 @@ class HM(EncoderBase):
         args = reference_encoder_args(a, bitstream, reconstruction)
         args += cls.get_variant_cli(variant_cli)
         rs = a.reference
+        parse_encoding_bitdepth(a.encoder_cfg)
         level = None
         if (rs.width <= 2048) and (rs.frame_rate <= 30.) :
             level = "4"
@@ -274,8 +276,9 @@ class HM(EncoderBase):
         elif (rs.width >= 3840) and (rs.frame_rate <= 60.) :
             level = "5.1"
         else:
-            raise RuntimeError(f'can not determine H265 Level for {a.anchor_key}') 
-        args += _to_cli_args(["--Level", level])
+            logger.warn(f'can not determine H265 Level for {a.anchor_key}')
+        if level is not None:
+            args += _to_cli_args({"--Level": level})
         return args
     
     @classmethod

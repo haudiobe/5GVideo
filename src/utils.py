@@ -160,7 +160,12 @@ class VideoInfo:
             "colourPrimaries": self.colour_primaries.value,
             "transferCharacteristics": self.transfer_characteristics.value,
             "matrixCoefficients": self.matrix_coefficients.value,
-            "sampleAspectRatio": self.sar
+            "sampleAspectRatio": self.sar,
+            "videoFullRangeFlag": self.video_full_range,
+            "chromaSampleLocType": self.chroma_sample_loc_type,
+            "HDRmasterDisplay": self.hdr_master_display,
+            "HDRmaxCLL": self.hdr_max_cll,
+            "HDRmaxFALL": self.hdr_max_fall
         }
 
 
@@ -182,6 +187,8 @@ class VideoSequence(VideoInfo):
             "copyRight": self.copyright,
             "Contact": self.contact
         }
+        if not path.parent.exists():
+            path.parent.mkdir(parents=True)
         with open(path, 'w') as writer:
             json.dump(data, writer, indent=4)
 
