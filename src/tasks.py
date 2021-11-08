@@ -15,47 +15,59 @@ import click
 logger = get_task_logger(__name__)
 
 BROKER_URL = os.getenv('BROKER_URL', 'redis://127.0.0.1:6379/0')
-BACKEND_URL = os.getenv('BACKEND_URL', None)  # 'redis://127.0.0.1:6379/0')
+BACKEND_URL = os.getenv('BACKEND_URL', None)
+VCC_WORKING_DIR = Path(os.getenv('VCC_WORKING_DIR', '/data'))
+
 app = Celery('tasks', broker=BROKER_URL, backend=BACKEND_URL)
 
-# Note: all workers taking jobs from the queue MUST support the encoders needed for the jobs. So we use one redis db per worker type.
-# HM = 2
-# JM = 3
-# VTM = 4
-# ETM = 5
-
+@app.task
+def encode_variant_task(anchor_key:str, variant_id:str, variant_cli:str, dry_run=False):
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
+    a.dry_run = dry_run
+    vd = get_encoder(a.encoder_id).encode_variant(a, variant_id, variant_cli)
+    vd.save_as(a.working_dir / f'{variant_id}.json')
 
 @app.task
-def encode_variant_task(a:AnchorTuple, variant_id:str, variant_cli:str):
-    enc = get_encoder(a.encoder_id)
-    p = a.working_dir / f'{variant_id}.json'
-    vd = enc.encode_variant(a, variant_id, variant_cli)
-    vd.save_as(p)
+def decode_variant_task(variant_id:str, dry_run=False):
+    anchor_key = '-'.join(variant_id.split('-')[0:3])
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
+    a.dry_run = dry_run
+    vp = a.working_dir / f'{variant_id}.json'
+    vd = None
+    try:
+        vd = VariantData.load(vp)
+    except FileNotFoundError:
+        b = {'key': variant_id, 'URI': f'{variant_id}.bin'}
+        vd = VariantData(bitstream=b)
+        vd.save_as(vp)
+        logger.warn(f'creating missing bitstream metadata: {vp}')
+    finally:
+        get_encoder(a.encoder_id).decode_variant(a, vd)
 
-@app.task
-def decode_variant_task(a:AnchorTuple, variant_id:str, variant_cli:str):
-    enc = get_encoder(a.encoder_id)
-    p = a.working_dir / f'{variant_id}.json'
-    enc.decode_variant(a, variant_id, variant_cli)
 
-
-@app.task
-def encode_task(anchor_key, variant_id=None):
-    a = AnchorTuple.load(anchor_key)
+# @app.task
+def encode_task(anchor_key, variant_id=None, dry_run=False):
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     for vid, vargs in a.iter_variants_args():
         if (variant_id is not None) and (variant_id != vid):
                 continue
         # enqueue each variant as async task
-        encode_variant_task.delay(a, vid, vargs)
+        encode_variant_task.delay(anchor_key, vid, vargs)
 
-@app.task
+# @app.task
 def decode_task(anchor_key, variant_id=None, dry_run=False):
-    a = AnchorTuple.load(anchor_key)
+
+    if variant_id:
+        decode_variant_task.delay(variant_id)
+        return 
+
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     for vid, vargs in a.iter_variants_args():
         if (variant_id is not None) and (variant_id != vid):
                 continue
         # enqueue each variant as async task
-        decode_variant_task.delay(a, vid, vargs)
+        decode_variant_task.delay(vid)
+
 
 @app.task
 def convert_sequence_task(conv:str, vs:str):
@@ -69,12 +81,11 @@ def convert_sequence_task(conv:str, vs:str):
     vs = VideoSequence.from_sidecar_metadata(vs)
     convert_sequence(conv, vs)
 
-@app.task
+# @app.task
 def convert_task(anchor_key, variant_id=None, dry_run=False):
-    a = AnchorTuple.load(anchor_key)
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     conv = get_anchor_conversion_type(a)
-    logger.info(variant_id, conv)
-    
+
     if conv == Conversion.NONE:
         return
     
@@ -84,25 +95,24 @@ def convert_task(anchor_key, variant_id=None, dry_run=False):
     elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020:
         convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')))
         for _, vd in iter_variants(a):
-            logger.info(variant_id, vd.variant_id)
-            if (variant_id is not None) and (variant_id != vd.variant_id):
-                    continue
+            if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
+                continue
             vs = a.working_dir / f'{vd.variant_id}.yuv.json'
             convert_sequence_task.delay(conv.value, str(vs))
 
 @app.task
 def compute_variant_metrics_task(anchor_key, vfp, dry_run=False):
-    a = AnchorTuple.load(anchor_key)
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     a.dry_run = dry_run
     vd = VariantData.load(Path(vfp))
     vd.metrics = compute_metrics(a, vd)
     vd.dumps(vfp)
 
-@app.task
+# @app.task
 def metrics_task(anchor_key, variant_id=None, dry_run=False):
-    a = AnchorTuple.load(anchor_key)
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     for vfp, vd in iter_variants(a):
-        if (variant_id is not None) and (variant_id != vd.variant_id):
+        if (vd is not None) and ((variant_id is not None) and (variant_id != vd.variant_id)):
                 continue
         compute_variant_metrics_task.delay(anchor_key, str(vfp))
 
@@ -119,13 +129,14 @@ def parse_tasks(cmd):
 
 
 @click.command()
-# @click.option('--delay/no-delay', required=False, default=True, help="delay tasks, or run immediately")
-@click.option('--dry-run', required=False, default=False, help="")
-@click.option('-s/-c', required=True, help="whether anchor/test key is a sequence IDs, or an encoder config ID")
-@click.argument('key', nargs=1)
-@click.argument('cmd', nargs=1)
-def main(dry_run, s, cmd,  key):
-    
+@click.option('--dry-run', required=False, default=False)
+@click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
+@click.argument('key', nargs=1, required=True)
+@click.argument('cmd', nargs=1, required=True)
+def main(dry_run, s, key, cmd):
+    """
+    process anchors identiifed through KEY task CMD
+    """
     fn = parse_tasks(cmd)
     
     if s:
