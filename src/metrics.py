@@ -4,7 +4,6 @@ import io
 import os
 import json
 import csv
-import math
 
 from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 
@@ -113,7 +112,7 @@ def hdrtools_input(v: VideoSequence, ref=True, file_header=0):
         '-p', f'Input{i}StartFrame={v.start_frame-1}',
         '-p', f'Input{i}FileHeader={file_header}',
         '-p', f'Input{i}Rate={v.frame_rate}',
-        '-p', f'Input{i}SampleRange=0',  # SR_STANDARD is HDRMetrics' default, (16-235)*k
+        '-p', f'Input{i}SampleRange={v.video_full_range}',  # 0: Standard/Video range, 1: Full range
         # '-p', f'Input{i}FourCCCode={0}'  # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
     ]
     

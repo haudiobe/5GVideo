@@ -106,15 +106,20 @@ def compute_variant_metrics_task(anchor_key, vfp, dry_run=False):
     a.dry_run = dry_run
     vd = VariantData.load(Path(vfp))
     vd.metrics = compute_metrics(a, vd)
-    vd.dumps(vfp)
+    vd.save_as(vfp)
 
-# @app.task
+
 def metrics_task(anchor_key, variant_id=None, dry_run=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
+    match_found = variant_id is None
     for vfp, vd in iter_variants(a):
-        if (vd is not None) and ((variant_id is not None) and (variant_id != vd.variant_id)):
-                continue
+        if vd is None:
+            continue
+        if ((variant_id is not None) and (variant_id != vd.variant_id)):
+            continue
         compute_variant_metrics_task.delay(anchor_key, str(vfp))
+        match_found = True
+    assert match_found, f'{variant_id} not found'
 
 def parse_tasks(cmd):
     if cmd == 'encode':
