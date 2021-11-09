@@ -51,7 +51,7 @@ def noop(*args, **kwargs):
     dl_skipped += 1
 
 
-def download_file(url: str, local_filename: Path, chunk_size=8192) -> Any:
+def download_file(url: str, local_filename: Path, chunk_size=8192, try_harder=True) -> Any:
     try:
         # logging.info(f'[downloading] {url}')
         global dl_count, dl_complete
@@ -64,9 +64,23 @@ def download_file(url: str, local_filename: Path, chunk_size=8192) -> Any:
                     f.write(chunk)
             dl_complete += 1
     except BaseException as e:
-        dl_errors.append(e)
-        return e
-
+        err = None
+        if (e.response.status_code == 404) and try_harder:
+            url_parts = url.split('/')
+            fix = str(url_parts[-1])
+            url_parts[-1] = fix[0].lower() + fix[1:]
+            url_fixed = '/'.join(url_parts)
+            try:
+                download_file(url_fixed, local_filename, try_harder=False)
+                return
+            except BaseException as e:
+                err = e
+        else:
+            err = e
+        
+        if err is not None:
+            dl_errors.append(e)
+            return err
 
 async def dl_if_not_exists(target: str, base_dir: Path, base_uri: str, overwrite=False, dry_run=False):
     global dl_executor
@@ -224,6 +238,10 @@ async def main():
         tasks.append(asyncio.create_task(dl_streams))
     
     await asyncio.gather(*tasks)
+
+    for err in dl_errors:
+        print(err)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
