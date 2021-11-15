@@ -13,7 +13,7 @@ class Conversion(Enum):
     HDRCONVERT_YCBR420TOEXR2020 = 2
 
 def get_anchor_conversion_type(a:AnchorTuple) -> Conversion:
-    if a.reference.hdr_master_display:
+    if a.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
         return Conversion.HDRCONVERT_YCBR420TOEXR2020
     coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
     if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
@@ -55,11 +55,11 @@ def hdrtools_transfer_function(v: VideoSequence):
             TransferFunction.BT709,
             TransferFunction.BT2020_SDR]:
         return 0  # no TF
-    elif v.chroma_subsampling == TransferFunction.BT2020_HLG:
+    elif v.transfer_characteristics == TransferFunction.BT2020_HLG:
         return 3
-    elif v.chroma_subsampling == TransferFunction.BT2020_PQ:
+    elif v.transfer_characteristics == TransferFunction.BT2020_PQ:
         return 1
-    return 0
+    raise ValueError('Invalid tranfer function')
 
 
 def hdrtools_sample_range(v: VideoSequence):
@@ -158,9 +158,11 @@ def as_exr2020_sequence(yuv_in: VideoSequence) -> VideoSequence:
     return exr_out
 
 
-def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSequence, logfile: Path = None) -> List[str]:
+def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSequence, logfile: Path = None, cfg = '/home/cfg/HDRConvertYCbCr420ToEXR2020.cfg',) -> List[str]:
     
     opts = [
+        '-f', cfg,
+
         '-p', f'SourceFile={yuv_in.path}',
         '-p', f'OutputFile={exr_out.path}',
 
@@ -173,10 +175,6 @@ def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSeque
         '-p', f'SourceBitDepthCmp0={yuv_in.bit_depth}',
         '-p', f'SourceBitDepthCmp1={yuv_in.bit_depth}',
         '-p', f'SourceBitDepthCmp2={yuv_in.bit_depth}',
-        # 4CC needs review ############################################################
-        '-p', f'SourceFourCCCode={hdrtools_pixel_format(yuv_in)}',
-        # '-p', f'SourceInterlaced={int(yuv_in.interlaced)}',
-        ###############################################################################
         '-p', f'SourceColorSpace={hdrtools_color_space(yuv_in)}', # 0 CM_YUV
         '-p', f'SourceColorPrimaries={hdrtools_color_primaries(yuv_in)}', # 1 BT.2020
         '-p', f'SourceSampleRange={hdrtools_sample_range(yuv_in)}', # 0 Standard
