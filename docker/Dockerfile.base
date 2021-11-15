@@ -29,6 +29,9 @@ RUN mkdir -p ./HDRTools/build && cd ./HDRTools/build && \
   cmake .. -DCMAKE_BUILD_TYPE=Release && \
   make -j 4
 
+# copy config files
+RUN cp -r /home/deps/HDRTools/bin/* /home/deps/HDRTools/build/bin/
+
 ENV HDRMETRICS_TOOL=/home/deps/HDRTools/build/bin/HDRMetrics
 ENV HDRCONVERT_TOOL=/home/deps/HDRTools/build/bin/HDRConvert
 ENV PATH=/home/deps/HDRTools/build/bin/tools:$PATH

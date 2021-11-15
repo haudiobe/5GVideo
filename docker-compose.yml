@@ -1,46 +1,48 @@
 version: '3'
 
-networks:
-  local:
-    driver: 'bridge'
-
-volumes:
-  redis-data:
-  redis-conf:
-
 services:
-  # task queue backend (redis)
+  
   queue:
-    image: "redis:alpine"
+    image: redis:alpine
     command: redis-server
-    expose:
-     - "6379"
-    volumes:
-      - './tmp/redis:/data'
-      - './docker/cfg/redis/redis.conf:/usr/local/etc/redis/redis.conf'
-  # task monitoring dashboard web browsers
-  status:
-    image: mher/flower
-    environment:
-      - CELERY_BROKER_URL=redis://queue:6379/0
-      - FLOWER_PORT=8888
     ports:
-      - "8888:8888"
+     - 6379:6379
+    volumes:
+      - ./docker/cfg/redis/redis.conf:/usr/local/etc/redis/redis.conf
+
+  workers:
     depends_on:
       - queue
-  workers:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.worker
     environment:
       - CELERY_BROKER_URL=redis://queue:6379/0
       - CELERY_BACKEND=redis://queue:6379/1
-    command: [ "celery -A tasks worker --loglevel=info --concurrency=4 -n worker@%h"]
+      - VCC_WORKING_DIR=/data
+      - JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
+      - JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
+    command: [ "/bin/sh", "-c",
+                "pip install debugpy -t /tmp && python3 /tmp/debugpy --listen 0.0.0.0:6900 -m celery -A tasks worker --loglevel=info --concurrency=4 -n worker@%h"]
+    ports:
+     - 6900:6900
+    volumes:
+      - /mnt/c/Users/nlsdv/5G-video:/data
+        
+  status:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.flower
     depends_on:
       - queue
+      - workers
+    environment:
+      - CELERY_BROKER_URL=redis://queue:6379/0
+      - FLOWER_PORT=8888
+      - CELERY_SEND_EVENTS=1
+    ports:
+      - 8888:8888
     volumes:
-      - './src:/home/5GVideo'
-      - type: bind
-        source: ${VCC_DATA_DIR}
-        target: /data
+      - ./docker/cfg/redis/redis.conf:/usr/local/etc/redis/redis.conf
+  
 
