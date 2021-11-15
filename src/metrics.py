@@ -159,7 +159,7 @@ def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, dry_run=False, cfg
     input1 = hdrtools_input(dist, ref=False)
     run = ['-f', str(cfg)] if cfg else []
     run += [
-        '-p', 'EnablehexMetric=1',  # the parser collects hex values only
+        '-p', 'EnablehexMetric=1',
         '-p', 'SilentMode=0',
         '-p', f'NumberOfFrames={dist.frame_count}'
     ]

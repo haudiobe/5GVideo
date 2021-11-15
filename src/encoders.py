@@ -88,8 +88,8 @@ class EncoderBase(ABC):
             assert dst_dir.is_dir(), 'target directory not found'
         else:
             dst_dir = a.working_dir  # 'anchor working directory not found'
-        if not a.working_dir.exists():
-            a.working_dir.mkdir(parents=True)
+
+        a.working_dir.mkdir(parents=True, exist_ok=True)
         
         ENC = str(a.encoder_id).replace("-", "").replace(".", "_")
         encoder = get_env(f'{ENC}_ENCODER')

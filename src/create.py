@@ -27,19 +27,6 @@ def compute_anchor_metrics(*anchors: AnchorTuple, decode=True, overwrite=False, 
             vd.save_as(vf)
         anchor_metrics_to_csv(a)
 
-"""
-def encode_anchor_bitstreams(*anchors: Iterable[AnchorTuple], decode=True, overwrite=False, dry_run=False):
-    for a in anchors:
-        a.dry_run = dry_run
-        enc = get_encoder(a.encoder_id)
-        for variant_id, variant_cli in a.iter_variants_args():
-            p = a.working_dir / f'{variant_id}.json'
-            if p.exists() and not overwrite:
-                print('# skipping', p, ' already exists. use -y to overwrite')
-                continue
-            vd = enc.encode_variant(a, variant_id, variant_cli)
-            vd.save_as(p)
-"""
 
 def parse_args():
     parser = argparse.ArgumentParser()

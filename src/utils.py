@@ -114,28 +114,6 @@ class VideoInfo:
         self.hdr_max_cll = properties.get('HDRmaxCLL', None)
         self.hdr_max_fall = properties.get('HDRmaxFALL', None)
 
-        self.is_valid_sequence()
-
-    def is_valid_sequence(self):
-        assert self.width is not None and type(self.width) == int, f'invalid width: {self.width}'
-        assert self.height is not None and type(self.height) == int, f'invalid height: {self.height}'
-        assert self.chroma_format in [ChromaFormat.YUV, ChromaFormat.RGB], f'invalid chroma format: {self.chroma_format}'
-        # should just use booleans for interleaved/interlaced
-        assert self.packing in ['planar', 'interleaved'], f'invalid packing: {self.packing}'
-        assert self.scan in ['progressive', 'interlaced'], f'invalid scan: {self.scan}'
-        assert self.chroma_subsampling in [ChromaSubsampling.CS_400, ChromaSubsampling.CS_420, ChromaSubsampling.CS_422, ChromaSubsampling.CS_444], f'invalid subsampling: {self.chroma_subsampling}'
-        """
-        assert self.bit_depth in [8, 10, 12, 16], f'invalid bitdepth: {self.bit_depth}'
-        assert self.colour_primaries in [ColorPrimaries.BT_709, ColorPrimaries.BT_2020], f'unsupported colour primaries, expected 1 or 9, got: {self.colour_primaries}'
-
-        if self.colour_primaries == ColorPrimaries.BT_709:
-            assert self.transfer_characteristics == TransferFunction.BT709, 'unsupported transfer characteristics for colour primaries 1'
-            assert self.matrix_coefficients == MatrixCoefficients.BT_709, 'unsupported matrix coefficient for colour primaries 1'
-        elif self.colour_primaries == ColorPrimaries.BT_2020:
-            assert self.matrix_coefficients == MatrixCoefficients.BT_2020, 'unsupported matrix coefficient for colour primaries 9'
-            assert self.transfer_characteristics in [TransferFunction.BT2020_SDR, TransferFunction.BT2020_HLG, TransferFunction.BT2020_HLG], 'unsupported transfer characteristics for colour primaries 9'
-        """        
-
     @property
     def interleaved(self):
         return self.packing == 'interleaved'

@@ -190,7 +190,9 @@ class VariantData:
 
     @classmethod
     def load(cls, fp: Path) -> 'VariantData':
-        assert fp.exists(), f'File not found: {fp}'
+        if not fp.exists():
+            raise FileNotFoundError(f'File not found: {fp}')
+
         with open(fp, 'r') as fo:
             data = json.load(fo)
             generation = data.get("Generation", None)
@@ -370,8 +372,6 @@ class AnchorTuple:
         assert len(anchors) == 1, 'duplicate anchor key found in streams.csv'
         return anchors[0]
 
-    # refctx = AnchorTupleCtx(scenario_dir=refdir)
-    # ref_anchors = refctx.iter_anchors(cfg_keys=[refkey])
 
 
     def __init__(self, anchor_dir: Path, reference: VideoSequence, encoder_id: str, encoder_cfg: str, variants: str, anchor_key: str, description: str = None, start_frame: int = 0, frame_count: int = None, dry_run: bool = False):
@@ -474,7 +474,8 @@ class AnchorTuple:
 def ref_location(row) -> str:
     loc = row[RefSequenceList.LOC]
     name = row[RefSequenceList.NAME]
-    return f'{loc}/{name}.json'
+    # return f'{loc}/{name}.json'
+    return f'{loc}/{loc}.json'
 
 
 def iter_ref_locations(reference_list: Path) -> Iterable[str]:
@@ -523,6 +524,7 @@ def iter_anchors(anchor_list: Path, refs: Dict[str, VideoSequence], scenario_dir
             if (keys is not None) and (anchor_key not in keys):
                 continue
             seq = refs[row[AnchorList.REF_SEQ]]
+            assert seq is not None, f'[{anchor_key}] reference sequence not found: {row[AnchorList.REF_SEQ]}'
             description = row[AnchorList.CLAUSE]
             encoder_id = row[AnchorList.REF_ENC] if AnchorList.REF_ENC in row else row[AnchorList.TEST_ENC]  # eg. HM16.22
             encoder_cfg_key = str(row[AnchorList.CFG])
@@ -560,7 +562,7 @@ def anchor_path_from_key(key: str, root_dir:Path ) -> Path:
         elif scenario == 'S2':
             scenario = 'Scenario-2-4K'
         elif scenario == 'S3':
-            scenario = 'Scenario-3-Sceen'
+            scenario = 'Scenario-3-Screen'
         elif scenario == 'S4':
             scenario = 'Scenario-4-Sharing'
         elif scenario == 'S5':
@@ -568,6 +570,35 @@ def anchor_path_from_key(key: str, root_dir:Path ) -> Path:
         else:
             raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
         return root_dir / f'Bitstreams/{scenario}/{enc}/{key}/'
+    
+    raise ValueError(f'Invalid anchor key "{key}"')
+
+
+def encoder_config_path(key: str, root_dir:Path ) -> Path:
+    arr = key.split('-')
+    if len(arr) == 3:
+        scenario, enc, cfg = arr
+        if scenario == 'S1':
+            scenario = 'Scenario-1-FHD'
+        elif scenario == 'S2':
+            scenario = 'Scenario-2-4K'
+        elif scenario == 'S3':
+            scenario = 'Scenario-3-Screen'
+        elif scenario == 'S4':
+            scenario = 'Scenario-4-Sharing'
+        elif scenario == 'S5':
+            scenario = 'Scenario-5-Gaming'
+        else:
+            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
+        
+        if enc == 'HM':
+            enc = '265'
+        elif enc == 'SCM':
+            enc = '265'
+        elif enc == 'JM':
+            enc = '265'
+
+        return root_dir / f'Bitstreams/{scenario}/{enc}/'
     
     raise ValueError(f'Invalid anchor key "{key}"')
 
