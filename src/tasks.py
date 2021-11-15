@@ -20,6 +20,7 @@ VCC_WORKING_DIR = Path(os.getenv('VCC_WORKING_DIR', '/data'))
 
 app = Celery('tasks', broker=BROKER_URL, backend=BACKEND_URL)
 
+
 @app.task
 def encode_variant_task(anchor_key:str, variant_id:str, variant_cli:str, dry_run=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
@@ -27,9 +28,26 @@ def encode_variant_task(anchor_key:str, variant_id:str, variant_cli:str, dry_run
     vd = get_encoder(a.encoder_id).encode_variant(a, variant_id, variant_cli)
     vd.save_as(a.working_dir / f'{variant_id}.json')
 
+
+def encode_variant_nodelay(anchor:AnchorTuple, variant_id:str, variant_cli:str, dry_run=False):
+    anchor.dry_run = dry_run
+    vd = get_encoder(anchor.encoder_id).encode_variant(anchor, variant_id, variant_cli)
+    vd.save_as(anchor.working_dir / f'{variant_id}.json')
+
+
+def encode_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
+    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
+    for vid, vargs in a.iter_variants_args():
+        if (variant_id is not None) and (variant_id != vid):
+                continue
+        if no_delay:
+            encode_variant_task.delay(anchor_key, vid, vargs, dry_run)
+        else:
+            encode_variant_nodelay(a, vid, vargs, dry_run)
+
+
 @app.task
-def decode_variant_task(variant_id:str, dry_run=False):
-    anchor_key = '-'.join(variant_id.split('-')[0:3])
+def decode_variant_task(anchor_key:str, variant_id:str, dry_run=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     a.dry_run = dry_run
     vp = a.working_dir / f'{variant_id}.json'
@@ -45,32 +63,35 @@ def decode_variant_task(variant_id:str, dry_run=False):
         get_encoder(a.encoder_id).decode_variant(a, vd)
 
 
-# @app.task
-def encode_task(anchor_key, variant_id=None, dry_run=False):
+def decode_variant_nodelay(a:AnchorTuple, variant_id:str, dry_run=False):
+    a.dry_run = dry_run
+    vp = a.working_dir / f'{variant_id}.json'
+    vd = None
+    try:
+        vd = VariantData.load(vp)
+    except FileNotFoundError:
+        b = {'key': variant_id, 'URI': f'{variant_id}.bin'}
+        vd = VariantData(bitstream=b)
+        vd.save_as(vp)
+        logger.warn(f'creating missing bitstream metadata: {vp}')
+    finally:
+        get_encoder(a.encoder_id).decode_variant(a, vd)
+
+
+def decode_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
-    for vid, vargs in a.iter_variants_args():
+    a.dry_run = dry_run
+    for vid, _ in a.iter_variants_args():
         if (variant_id is not None) and (variant_id != vid):
                 continue
-        # enqueue each variant as async task
-        encode_variant_task.delay(anchor_key, vid, vargs)
-
-# @app.task
-def decode_task(anchor_key, variant_id=None, dry_run=False):
-
-    if variant_id:
-        decode_variant_task.delay(variant_id)
-        return 
-
-    a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
-    for vid, vargs in a.iter_variants_args():
-        if (variant_id is not None) and (variant_id != vid):
-                continue
-        # enqueue each variant as async task
-        decode_variant_task.delay(vid)
+        if no_delay:
+            decode_variant_nodelay(a, vid, dry_run=dry_run)
+        else:
+            decode_variant_task.delay(anchor_key, vid, dry_run=dry_run)
 
 
 @app.task
-def convert_sequence_task(conv:str, vs:str):
+def convert_sequence_task(conv:str, vs:str, dry_run=False):
     conv = int(conv)
     if conv == Conversion.NONE.value:
         conv = Conversion.NONE
@@ -79,10 +100,10 @@ def convert_sequence_task(conv:str, vs:str):
     elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020.value:
         conv = Conversion.HDRCONVERT_YCBR420TOEXR2020
     vs = VideoSequence.from_sidecar_metadata(vs)
-    convert_sequence(conv, vs)
+    convert_sequence(conv, vs, dry_run=dry_run)
 
-# @app.task
-def convert_task(anchor_key, variant_id=None, dry_run=False):
+
+def convert_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     conv = get_anchor_conversion_type(a)
 
@@ -90,15 +111,25 @@ def convert_task(anchor_key, variant_id=None, dry_run=False):
         return
     
     elif conv == Conversion.HDRCONVERT_8TO10BIT:
-        convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')))
+        if no_delay:
+            convert_sequence(conv, a.reference, dry_run=dry_run)
+        else:
+            convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
 
     elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020:
-        convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')))
+        if no_delay:
+            convert_sequence(conv, a.reference, dry_run=dry_run)
+        else:
+            convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
         for _, vd in iter_variants(a):
             if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                 continue
             vs = a.working_dir / f'{vd.variant_id}.yuv.json'
-            convert_sequence_task.delay(conv.value, str(vs))
+            if no_delay:
+                convert_sequence(conv, VideoSequence.from_sidecar_metadata(str(vs)), dry_run=dry_run)
+            else:
+                convert_sequence_task.delay(conv.value, str(vs), dry_run=dry_run)
+
 
 @app.task
 def compute_variant_metrics_task(anchor_key, vfp, dry_run=False):
@@ -109,7 +140,7 @@ def compute_variant_metrics_task(anchor_key, vfp, dry_run=False):
     vd.save_as(vfp)
 
 
-def metrics_task(anchor_key, variant_id=None, dry_run=False):
+def metrics_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     match_found = variant_id is None
     for vfp, vd in iter_variants(a):
@@ -117,9 +148,13 @@ def metrics_task(anchor_key, variant_id=None, dry_run=False):
             continue
         if ((variant_id is not None) and (variant_id != vd.variant_id)):
             continue
-        compute_variant_metrics_task.delay(anchor_key, str(vfp))
         match_found = True
+        if no_delay:
+            compute_metrics(a, vd)
+        else:
+            compute_variant_metrics_task.delay(anchor_key, str(vfp), dry_run=dry_run)
     assert match_found, f'{variant_id} not found'
+
 
 def parse_tasks(cmd):
     if cmd == 'encode':
@@ -134,11 +169,12 @@ def parse_tasks(cmd):
 
 
 @click.command()
+@click.option('--no-delay', required=False, default=False)
 @click.option('--dry-run', required=False, default=False)
 @click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
 @click.argument('key', nargs=1, required=True)
 @click.argument('cmd', nargs=1, required=True)
-def main(dry_run, s, key, cmd):
+def main(no_delay, dry_run, s, key, cmd):
     """
     process anchors identiifed through KEY task CMD
     """
@@ -152,12 +188,12 @@ def main(dry_run, s, key, cmd):
             key = '-'.join(parts[0:3])
         elif len(parts) != 3:
             raise ValueError(f'invalid anchor key {key}')
-        fn(key, variant_id=variant_id, dry_run=dry_run)
+        fn(key, variant_id=variant_id, dry_run=dry_run, no_delay=no_delay)
     
     else:
         anchors = AnchorTuple.iter_anchors(cfg_keys=[key])
         for a in anchors:
-            fn(a.anchor_key, dry_run=dry_run)
+            fn(a.anchor_key, dry_run=dry_run, no_delay=no_delay)
 
 
 if __name__ == "__main__":
