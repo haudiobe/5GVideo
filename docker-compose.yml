@@ -18,7 +18,7 @@ services:
       dockerfile: ./docker/Dockerfile.worker
     environment:
       - CELERY_BROKER_URL=redis://queue:6379/0
-      - CELERY_BACKEND=redis://queue:6379/1
+      - CELERY_RESULT_BACKEND=redis://queue:6379/1
       - VCC_WORKING_DIR=/data
       - JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
       - JM19_0_DECODER=/home/deps/JM/bin/ldecod_static

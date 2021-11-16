@@ -14,12 +14,17 @@ import click
 
 logger = get_task_logger(__name__)
 
-BROKER_URL = os.getenv('BROKER_URL', 'redis://127.0.0.1:6379/0')
-BACKEND_URL = os.getenv('BACKEND_URL', None)
+BROKER_URL = os.getenv('BROKER_URL', 'redis://0.0.0.0:6379/0')
+BACKEND_URL = os.getenv('BACKEND_URL', 'redis://0.0.0.0:6379/1')
 VCC_WORKING_DIR = Path(os.getenv('VCC_WORKING_DIR', '/data'))
 
 app = Celery('tasks', broker=BROKER_URL, backend=BACKEND_URL)
-
+# visibility_timeout should be more than the expected maximum tasks time to avoid automatic re-submission of tasks 
+app.conf.broker_transport_options.update({ 'visibility_timeout': 360000 })
+app.conf.worker_send_task_events = True
+app.conf.task_track_started = True
+app.conf.task_send_sent_event = True
+app.conf.task_publish_retry = False
 
 @app.task
 def encode_variant_task(anchor_key:str, variant_id:str, variant_cli:str, dry_run=False):
@@ -41,9 +46,9 @@ def encode_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
         if (variant_id is not None) and (variant_id != vid):
                 continue
         if no_delay:
-            encode_variant_task.delay(anchor_key, vid, vargs, dry_run)
-        else:
             encode_variant_nodelay(a, vid, vargs, dry_run)
+        else:
+            encode_variant_task.delay(anchor_key, vid, vargs, dry_run)
 
 
 @app.task
