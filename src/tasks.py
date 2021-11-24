@@ -108,24 +108,14 @@ def convert_sequence_task(conv:str, vs:str, dry_run=False):
     convert_sequence(conv, vs, dry_run=dry_run)
 
 
-def convert_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
+def convert_task(anchor_key, variant_id=None, dry_run=False, no_delay=False, variants=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     conv = get_anchor_conversion_type(a)
 
     if conv == Conversion.NONE:
         return
     
-    elif conv == Conversion.HDRCONVERT_8TO10BIT:
-        if no_delay:
-            convert_sequence(conv, a.reference, dry_run=dry_run)
-        else:
-            convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
-
-    elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020:
-        if no_delay:
-            convert_sequence(conv, a.reference, dry_run=dry_run)
-        else:
-            convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
+    if variants:
         for _, vd in iter_variants(a):
             if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                 continue
@@ -134,6 +124,12 @@ def convert_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
                 convert_sequence(conv, VideoSequence.from_sidecar_metadata(str(vs)), dry_run=dry_run)
             else:
                 convert_sequence_task.delay(conv.value, str(vs), dry_run=dry_run)
+    else:
+        if no_delay:
+            convert_sequence(conv, a.reference, dry_run=dry_run)
+        else:
+            convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
+    
 
 
 @app.task
@@ -174,12 +170,13 @@ def parse_tasks(cmd):
 
 
 @click.command()
-@click.option('--no-delay', required=False, default=False)
+@click.option('--variants/--sequence', required=False, default=False, help="[convert] reference sequence (default) or decoded bitstreams")
+@click.option('--no-delay', required=False, default=False, help='process sequentialy, does not queue jobs for workers pool')
 @click.option('--dry-run', required=False, default=False)
 @click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
 @click.argument('key', nargs=1, required=True)
 @click.argument('cmd', nargs=1, required=True)
-def main(no_delay, dry_run, s, key, cmd):
+def main(variants, no_delay, dry_run, s, key, cmd):
     """
     process anchors identiifed through KEY task CMD
     """
@@ -193,11 +190,16 @@ def main(no_delay, dry_run, s, key, cmd):
             key = '-'.join(parts[0:3])
         elif len(parts) != 3:
             raise ValueError(f'invalid anchor key {key}')
+
+        if fn == convert_task:
+            fn(key, variant_id=variant_id, dry_run=dry_run, no_delay=no_delay, variants=variants)
         fn(key, variant_id=variant_id, dry_run=dry_run, no_delay=no_delay)
     
     else:
         anchors = AnchorTuple.iter_anchors(cfg_keys=[key])
         for a in anchors:
+            if fn == convert_task:
+                fn(key, dry_run=dry_run, no_delay=no_delay, variants=variants)
             fn(a.anchor_key, dry_run=dry_run, no_delay=no_delay)
 
 
