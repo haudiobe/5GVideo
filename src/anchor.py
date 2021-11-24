@@ -474,8 +474,7 @@ class AnchorTuple:
 def ref_location(row) -> str:
     loc = row[RefSequenceList.LOC]
     name = row[RefSequenceList.NAME]
-    # return f'{loc}/{name}.json'
-    return f'{loc}/{loc}.json'
+    return f'{loc}/{name}.json'
 
 
 def iter_ref_locations(reference_list: Path) -> Iterable[str]:
