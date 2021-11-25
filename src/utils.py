@@ -54,7 +54,7 @@ def md5_checksum(p: Path):
         return md5.hexdigest()
 
 
-def run_process(log: str, *cmd, dry_run=False, verbose=True):
+def run_process(log: str, *cmd, dry_run=False, verbose=True, cwd=None):
 
     print("\n" + "#" * 128 + "\n")
     if verbose:
@@ -62,7 +62,7 @@ def run_process(log: str, *cmd, dry_run=False, verbose=True):
     if dry_run:
         return
     logfile = open(log, 'w')
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
     while True:
         out = proc.stdout.readline().decode('utf-8')
         logfile.write(out)

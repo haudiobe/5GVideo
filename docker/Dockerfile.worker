@@ -18,6 +18,7 @@ ENV SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
 
 # JM
 COPY --from=vcc-jm:latest /home/deps/JM/bin /home/deps/JM/bin
+COPY --from=vcc-jm:latest /home/deps/JM/cfg /home/deps/JM/bin
 ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
 ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
 
