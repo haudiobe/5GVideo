@@ -10,7 +10,7 @@ from csv import DictWriter
 from typing import Any, List, Iterable, Tuple
 
 from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
-from encoders import get_encoder, parse_encoding_bitdepth
+from encoders import get_encoder, get_encoding_bitdepth
 from metrics import SDR_METRICS, Metric, compute_metrics, anchor_metrics_to_csv
 from convert import as_10bit_sequence
 
@@ -149,8 +149,7 @@ def verify_variant_metrics(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir: P
     3. compare with values defined in VariantData
     return a diff in case of missmatch
     """
-    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
+    if (a.reference.bit_depth == 8):
         assert as_10bit_sequence(a.reference).path.exists()
     assert vd.metrics is not None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
 

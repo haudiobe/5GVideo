@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import os
-from anchor import AnchorTuple, VariantData, iter_variants
+from anchor import AnchorTuple, VariantData, iter_variants, iter_anchors
 from celery import Celery
 from celery.utils.log import get_task_logger
 from encoders import get_encoder
@@ -196,7 +196,7 @@ def main(variants, no_delay, dry_run, s, key, cmd):
         fn(key, variant_id=variant_id, dry_run=dry_run, no_delay=no_delay)
     
     else:
-        anchors = AnchorTuple.iter_anchors(cfg_keys=[key])
+        anchors = AnchorTuple.iter_cfg_anchors(key)
         for a in anchors:
             if fn == convert_task:
                 fn(key, dry_run=dry_run, no_delay=no_delay, variants=variants)

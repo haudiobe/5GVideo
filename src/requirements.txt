@@ -5,3 +5,4 @@ requests==2.26.0
 urllib3==1.26.6
 numpy==1.19.1
 scipy==1.7.1
+matplotlib==3.5.0

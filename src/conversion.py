@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 from typing import List
 from utils import run_process, VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
-from encoders import parse_encoding_bitdepth
+from encoders import get_encoding_bitdepth
 from anchor import AnchorTuple
 
 class Conversion(Enum):
@@ -15,9 +15,10 @@ class Conversion(Enum):
 def get_anchor_conversion_type(a:AnchorTuple) -> Conversion:
     if a.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
         return Conversion.HDRCONVERT_YCBR420TOEXR2020
-    coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-    if (a.reference.bit_depth == 8) and (coded_bit_depth == 10):
+    # compute all metrics on 10 bit assets, even for JM
+    if (a.reference.bit_depth == 8):
         return Conversion.HDRCONVERT_8TO10BIT
+    assert get_encoding_bitdepth(a) == a.reference.bit_depth
     return Conversion.NONE
  
 

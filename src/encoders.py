@@ -99,7 +99,8 @@ class EncoderBase(ABC):
         logfile = dst_dir / f'{variant_id}.encoder.log'
         
         cmd = cls.get_encoder_cmd(a, variant_cli, bitstream, reconstruction)
-        run_process(logfile, encoder, *cmd, dry_run=a.dry_run)
+        
+        run_process(logfile, encoder, *cmd, dry_run=a.dry_run, cwd=Path(encoder).parent)
 
         if a.dry_run:
             return VariantData()
@@ -107,8 +108,12 @@ class EncoderBase(ABC):
         dist = VideoSequence(reconstruction, **a.reference.properties)
         dist.start_frame = 1
         dist.frame_count = a.reference.frame_count
-        coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
-        dist.bit_depth = coded_bit_depth
+        coded_bit_depth = cls.get_encoding_bitdepth(a.encoder_cfg)
+        if coded_bit_depth == -1:
+            dist.bit_depth = a.reference.bit_depth
+        else:
+            dist.bit_depth = coded_bit_depth
+
         dist.dump(dst_dir / f'{variant_id}.yuv.json')
 
         rec = ReconstructionMeta(
@@ -139,23 +144,24 @@ class EncoderBase(ABC):
         dist = VideoSequence(reconstructed, **a.reference.properties)
         dist.start_frame = 1
         dist.frame_count = a.reference.frame_count
-        coded_bit_depth = parse_encoding_bitdepth(a.encoder_cfg)
+        coded_bit_depth = cls.get_encoding_bitdepth(a.encoder_cfg)
         dist.bit_depth = coded_bit_depth
         if not a.dry_run:
             dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
+    @classmethod
+    def get_encoding_bitdepth(cls, cfg:Path) -> int:
+        # defaulty implem based on HM
+        with open(cfg, 'r') as fo:
+            for line in fo:
+                m = re.match(r'(InternalBitDepth\s*:\s*)(\d*)', line)
+                if m:
+                    return int(m[2])
+            raise Exception('Failed to parse encoding bit depth')
 
-def parse_encoding_bitdepth(cfg: Path, encoder_id: str = None):
-    if encoder_id is not None:
-        return __encoders__[encoder_id].parse_encoding_bitdepth(cfg)
-    with open(cfg, 'r') as fo:
-        for line in fo:
-            m = re.match(r'(InternalBitDepth\s*:\s*)(\d*)', line)
-            if m:
-                return int(m[2])
-        return -1
-
+def get_encoding_bitdepth(a: AnchorTuple):
+    return __encoders__[a.encoder_id].get_encoding_bitdepth(a.encoder_cfg)
 
 def parse_variant_qp(variant_cli: str) -> int:
     return int(shlex.split(variant_cli)[-1])
@@ -265,7 +271,7 @@ class HM(EncoderBase):
         args = reference_encoder_args(a, bitstream, reconstruction)
         args += cls.get_variant_cli(variant_cli)
         rs = a.reference
-        parse_encoding_bitdepth(a.encoder_cfg)
+        cls.get_encoding_bitdepth(a.encoder_cfg)
         level = None
         if (rs.width <= 2048) and (rs.frame_rate <= 30.) :
             level = "4"
@@ -416,10 +422,14 @@ class JM(EncoderBase):
         if a.reference.interleaved:
             args += ["-p", "Interleaved=1"]
 
-        if a.reference.chroma_format == ChromaFormat.RGB:
-            args += ["-p", 'RGBInput=1', "-p", 'StandardRange=1']  # 1 = full range
+        if int(a.reference.chroma_format == ChromaFormat.RGB):
+            args += ["-p", 'RGBInput=0']
         else:
-            args += ["-p", 'RGBInput=0', "-p", 'StandardRange=0']
+            args += ["-p", 'RGBInput=1']
+            if a.reference.video_full_range:
+                args += ["-p", f'StandardRange=0']
+            else:
+                args += ["-p", f'StandardRange=1']
 
         if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
             args += ["-p", 'YUVFormat=0']

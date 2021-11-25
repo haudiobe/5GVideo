@@ -14,6 +14,56 @@ from utils import VideoSequence, md5_checksum
 ENCODING = 'utf-8-sig'
 
 
+def anchor_path_from_key(key: str, root_dir:Path ) -> Path:
+    arr = key.split('-')
+    if len(arr) == 3:
+        scenario, _, enc = arr
+        if scenario == 'S1':
+            scenario = 'Scenario-1-FHD'
+        elif scenario == 'S2':
+            scenario = 'Scenario-2-4K'
+        elif scenario == 'S3':
+            scenario = 'Scenario-3-Screen'
+        elif scenario == 'S4':
+            scenario = 'Scenario-4-Sharing'
+        elif scenario == 'S5':
+            scenario = 'Scenario-5-Gaming'
+        else:
+            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
+        return root_dir / f'Bitstreams/{scenario}/{enc}/{key}/'
+    
+    raise ValueError(f'Invalid anchor key "{key}"')
+
+
+def encoder_config_path(key: str, root_dir:Path ) -> Path:
+    arr = key.split('-')
+    if len(arr) == 3:
+        scenario, enc, cfg = arr
+        if scenario == 'S1':
+            scenario = 'Scenario-1-FHD'
+        elif scenario == 'S2':
+            scenario = 'Scenario-2-4K'
+        elif scenario == 'S3':
+            scenario = 'Scenario-3-Screen'
+        elif scenario == 'S4':
+            scenario = 'Scenario-4-Sharing'
+        elif scenario == 'S5':
+            scenario = 'Scenario-5-Gaming'
+        else:
+            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
+        
+        if enc == 'HM':
+            enc = '265'
+        elif enc == 'SCM':
+            enc = '265'
+        elif enc == 'JM':
+            enc = '264'
+
+        return root_dir / f'Bitstreams/{scenario}/{enc}/CFG/{key}.cfg'
+    
+    raise ValueError(f'Invalid anchor key "{key}"')
+
+
 # scenario/anchors.csv
 class AnchorList:
     KEY = '#Key'  # directory where anchor is stored
@@ -372,6 +422,13 @@ class AnchorTuple:
         assert len(anchors) == 1, 'duplicate anchor key found in streams.csv'
         return anchors[0]
 
+    @classmethod
+    def iter_cfg_anchors(cls, config_key, root_dir=Path('/data')):
+        test_dir = encoder_config_path(config_key, root_dir).parent.parent
+        ctx = AnchorTupleCtx(scenario_dir=test_dir)
+        anchors = ctx.iter_anchors(cfg_keys=[config_key])
+        assert len(anchors), f'No anchor/test found for encoder config {config_key}'
+        return anchors
 
 
     def __init__(self, anchor_dir: Path, reference: VideoSequence, encoder_id: str, encoder_cfg: str, variants: str, anchor_key: str, description: str = None, start_frame: int = 0, frame_count: int = None, dry_run: bool = False):
@@ -551,55 +608,6 @@ def iter_variants(a: AnchorTuple) -> Iterable[Tuple[Path, VariantData]]:
             data = VariantData.load(vfp)
         yield vfp, data
 
-
-def anchor_path_from_key(key: str, root_dir:Path ) -> Path:
-    arr = key.split('-')
-    if len(arr) == 3:
-        scenario, _, enc = arr
-        if scenario == 'S1':
-            scenario = 'Scenario-1-FHD'
-        elif scenario == 'S2':
-            scenario = 'Scenario-2-4K'
-        elif scenario == 'S3':
-            scenario = 'Scenario-3-Screen'
-        elif scenario == 'S4':
-            scenario = 'Scenario-4-Sharing'
-        elif scenario == 'S5':
-            scenario = 'Scenario-5-Gaming'
-        else:
-            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
-        return root_dir / f'Bitstreams/{scenario}/{enc}/{key}/'
-    
-    raise ValueError(f'Invalid anchor key "{key}"')
-
-
-def encoder_config_path(key: str, root_dir:Path ) -> Path:
-    arr = key.split('-')
-    if len(arr) == 3:
-        scenario, enc, cfg = arr
-        if scenario == 'S1':
-            scenario = 'Scenario-1-FHD'
-        elif scenario == 'S2':
-            scenario = 'Scenario-2-4K'
-        elif scenario == 'S3':
-            scenario = 'Scenario-3-Screen'
-        elif scenario == 'S4':
-            scenario = 'Scenario-4-Sharing'
-        elif scenario == 'S5':
-            scenario = 'Scenario-5-Gaming'
-        else:
-            raise ValueError(f'Invalid scenario key "{scenario}" in {key}')
-        
-        if enc == 'HM':
-            enc = '265'
-        elif enc == 'SCM':
-            enc = '265'
-        elif enc == 'JM':
-            enc = '265'
-
-        return root_dir / f'Bitstreams/{scenario}/{enc}/'
-    
-    raise ValueError(f'Invalid anchor key "{key}"')
 
 
 class AnchorTupleCtx:

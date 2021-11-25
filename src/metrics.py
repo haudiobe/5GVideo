@@ -9,7 +9,7 @@ from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, iter_variants
 from utils import run_process
-from encoders import get_encoder, parse_encoding_bitdepth, parse_variant_qp
+from encoders import get_encoder, parse_variant_qp
 from conversion import Conversion, as_10bit_sequence, as_exr2020_sequence, get_anchor_conversion_type, hdr_convert_cmd_8to10bits
 
 class VideoFormatException(BaseException):
@@ -258,18 +258,22 @@ def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0
 
 def compute_sdr_metrics(a: AnchorTuple, vd: VariantData):
     hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetrics_PSNR_MSSSIM.cfg')
-
+    dist = None
     conv = get_anchor_conversion_type(a)
     if conv == Conversion.NONE:
         ref = a.reference
         dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        assert ref.bit_depth == dist.bit_depth
+        if dist.bit_depth == -1:
+            dist.bit_depth = ref.bit_depth
+            dist.dump(a.working_dir / f'{vd.variant_id}.yuv.json')
+        else:
+            assert ref.bit_depth == dist.bit_depth
 
     elif conv == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(a.reference)
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
-        dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        assert ref.bit_depth == dist.bit_depth
+        vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
+        dist = as_10bit_sequence(vs)
 
     else:
         raise ValueError("Invalid conversion type for SDR metrics")
@@ -345,11 +349,16 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData):
 def compute_metrics(a: AnchorTuple, vd: VariantData) -> VariantMetricSet:
 
     conv = get_anchor_conversion_type(a)
-    metrics = VariantMetricSet()
-    metrics[Metric.BITRATELOG.key] = 0
-    metrics[Metric.BITRATE.key] = 0
-    metrics[Metric.ENCODETIME.key] = 0
-    metrics[Metric.DECODETIME.key] = 0
+
+    metrics = None
+    if vd.metrics is None:
+        metrics = VariantMetricSet()
+        metrics[Metric.BITRATELOG.key] = 0
+        metrics[Metric.BITRATE.key] = 0
+        metrics[Metric.ENCODETIME.key] = 0
+        metrics[Metric.DECODETIME.key] = 0
+    else:
+        metrics = vd.metrics.copy()
 
     if not os.getenv('DISABLE_HDRMETRICS'):
         if conv in (Conversion.NONE, Conversion.HDRCONVERT_8TO10BIT):
