@@ -27,28 +27,28 @@ app.conf.task_send_sent_event = True
 app.conf.task_publish_retry = False
 
 @app.task
-def encode_variant_task(anchor_key:str, variant_id:str, variant_cli:str, dry_run=False):
+def encode_variant_task(anchor_key:str, variant_id:str, variant_qp:str, dry_run=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
     a.dry_run = dry_run
-    vd = get_encoder(a.encoder_id).encode_variant(a, variant_id, variant_cli)
+    vd = get_encoder(a.encoder_id).encode_variant(a, variant_id, variant_qp)
     vd.save_as(a.working_dir / f'{variant_id}.json')
 
 
-def encode_variant_nodelay(anchor:AnchorTuple, variant_id:str, variant_cli:str, dry_run=False):
+def encode_variant_nodelay(anchor:AnchorTuple, variant_id:str, variant_qp:str, dry_run=False):
     anchor.dry_run = dry_run
-    vd = get_encoder(anchor.encoder_id).encode_variant(anchor, variant_id, variant_cli)
+    vd = get_encoder(anchor.encoder_id).encode_variant(anchor, variant_id, variant_qp)
     vd.save_as(anchor.working_dir / f'{variant_id}.json')
 
 
 def encode_task(anchor_key, variant_id=None, dry_run=False, no_delay=False):
     a = AnchorTuple.load(anchor_key, root_dir=VCC_WORKING_DIR)
-    for vid, vargs in a.iter_variants_args():
+    for vid, vqp in a.iter_variants_args():
         if (variant_id is not None) and (variant_id != vid):
                 continue
         if no_delay:
-            encode_variant_nodelay(a, vid, vargs, dry_run)
+            encode_variant_nodelay(a, vid, vqp, dry_run)
         else:
-            encode_variant_task.delay(anchor_key, vid, vargs, dry_run)
+            encode_variant_task.delay(anchor_key, vid, vqp, dry_run)
 
 
 @app.task

@@ -46,13 +46,13 @@ class EncoderBase(ABC):
     decoder_bin: str = None
 
     @abstractclassmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
         """Parse the variant cli from streams.csv into command line options.
         """
         raise NotImplementedError()
     
     @abstractclassmethod
-    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         """Produce the command line to encode the specified anchor's variant. Subclasses must supply its own implementation.
             Producing a reconstruction file while encoding is not enforced, 
                 and when implemented must generate the appropriate json metadata (anchor.ReconstructionMeta) to support the metrics computation workflow.
@@ -80,7 +80,7 @@ class EncoderBase(ABC):
         return {}
 
     @classmethod
-    def encode_variant(cls, a: AnchorTuple, variant_id: str, variant_cli: str, dst_dir: Path = None) -> VariantData:
+    def encode_variant(cls, a: AnchorTuple, variant_id: str, variant_qp: str, dst_dir: Path = None) -> VariantData:
         """
         encode the variant and return VariantData
         """
@@ -98,21 +98,19 @@ class EncoderBase(ABC):
         reconstruction = dst_dir / f'{variant_id}.yuv'
         logfile = dst_dir / f'{variant_id}.encoder.log'
         
-        cmd = cls.get_encoder_cmd(a, variant_cli, bitstream, reconstruction)
+        cmd = cls.get_encoder_cmd(a, variant_qp, bitstream, reconstruction)
         
         run_process(logfile, encoder, *cmd, dry_run=a.dry_run, cwd=Path(encoder).parent)
-
-        if a.dry_run:
-            return VariantData()
+        assert a.dry_run or reconstruction.exists(), 'reconstruction not found'
 
         dist = VideoSequence(reconstruction, **a.reference.properties)
         dist.start_frame = 1
         dist.frame_count = a.reference.frame_count
         coded_bit_depth = cls.get_encoding_bitdepth(a.encoder_cfg)
-        if coded_bit_depth == -1:
-            dist.bit_depth = a.reference.bit_depth
-        else:
+        if coded_bit_depth:
             dist.bit_depth = coded_bit_depth
+        else:
+            dist.bit_depth = a.reference.bit_depth
 
         dist.dump(dst_dir / f'{variant_id}.yuv.json')
 
@@ -120,9 +118,9 @@ class EncoderBase(ABC):
             a.encoder_id,
             reconstruction,
             None,
-            md5=True
+            md5=reconstruction.exists()
         )
-        return VariantData.new(a, variant_id, variant_cli, logfile, bitstream, rec)
+        return VariantData.new(a, variant_id, variant_qp, logfile, bitstream, rec)
 
     @classmethod
     def decode_variant(cls, a: AnchorTuple, v: VariantData, dst_dir: Path = None, md5=True) -> ReconstructionMeta:
@@ -158,13 +156,10 @@ class EncoderBase(ABC):
                 m = re.match(r'(InternalBitDepth\s*:\s*)(\d*)', line)
                 if m:
                     return int(m[2])
-            raise Exception('Failed to parse encoding bit depth')
+            return None
 
-def get_encoding_bitdepth(a: AnchorTuple):
+def get_encoding_bitdepth(a: AnchorTuple) -> int:
     return __encoders__[a.encoder_id].get_encoding_bitdepth(a.encoder_cfg)
-
-def parse_variant_qp(variant_cli: str) -> int:
-    return int(shlex.split(variant_cli)[-1])
 
 
 def _to_cli_args(opts: dict):
@@ -189,12 +184,12 @@ def get_env(var: str):
 def encode_anchor_bitstreams(a: AnchorTuple, decode=False, overwrite=False, dry_run=False):
     a.dry_run = dry_run
     enc = get_encoder(a.encoder_id)
-    for variant_id, variant_cli in a.iter_variants_args():
+    for variant_id, variant_qp in a.iter_variants_args():
         p = a.working_dir / f'{variant_id}.json'
         if p.exists() and not overwrite:
             print('# skipping', p, ' already exists. use -y to overwrite')
             continue
-        vd = enc.encode_variant(a, variant_id, variant_cli)
+        vd = enc.encode_variant(a, variant_id, variant_qp)
         vd.save_as(p)
 
 
@@ -262,14 +257,13 @@ class HM(EncoderBase):
     decoder_bin = "HM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
-        qp = parse_variant_qp(args)
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
         return ['-q', str(qp)]
 
     @classmethod
-    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction)
-        args += cls.get_variant_cli(variant_cli)
+        args += cls.get_variant_cmd(a, variant_qp)
         rs = a.reference
         cls.get_encoding_bitdepth(a.encoder_cfg)
         level = None
@@ -348,8 +342,8 @@ class SCM(HM):
     decoder_bin = "SCM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
-        return super().get_variant_cli(args)
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
+        return super().get_variant_cmd(a, qp)
 
     @classmethod
     def get_encoder_cmd(cls, *args, **kwargs):
@@ -368,14 +362,13 @@ class VTM(EncoderBase):
     decoder_bin = "VTM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
-        qp = parse_variant_qp(args)
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
         return ['-q', str(qp)]
 
     @classmethod
-    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         args = reference_encoder_args(a, bitstream, reconstruction)
-        args += cls.get_variant_cli(variant_cli)
+        args += cls.get_variant_cmd(a, variant_qp)
         # --LMCSSignalType         Input signal type: 0:SDR, 1:HDR-PQ, 2:HDR-HLG
         return args
 
@@ -392,18 +385,85 @@ class JM(EncoderBase):
     decoder_bin = "JM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
-        qp = parse_variant_qp(args)
-        qp_args = f'-p QPISlice={qp} -p QPPSlice={qp}'
-        return shlex.split(qp_args)
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
+        quantization_cfg = {
+            # 6.2.8.2.2	S1-JM-01
+            'S1-JM-01': {
+                '22': [19, 23, 23, "B7r0B3r3B1r4b0e6b2e6B5r4b4e6b6e6B11r3B9r4b8e6b10e6B13r4b12e6b14e6"],
+                '27': [24, 28, 28, "B7r1B3r4B1r6b0e8b2e8B5r6b4e8b6e8B11r4B9r6b8e8b10e8B13r6b12e8b14e8"],
+                '32': [29, 33, 33, "B7r2B3r5B1r7b0e8b2e8B5r7b4e8b6e8B11r5B9r7b8e8b10e8B13r7b12e8b14e8"],
+                '37': [34, 38, 38, "B7r3B3r6B1r7b0e8b2e8B5r7b4e8b6e8B11r6B9r7b8e8b10e8B13r7b12e8b14e8"]
+            },
+            # 6.4.8.2.3	S3-JM-01: no Intra
+            'S3-JM-01': {
+                '22': [21, 24, None, "P0r3P1r2P2r3P3r2"],
+                '27': [26, 29, None, "P0r3P1r2P2r3P3r2"],
+                '32': [31, 34, None, "P0r6P1r5P2r6P3r5"],
+                '37': [36, 39, None, "P0r6P1r5P2r6P3r5"],
+                '42': [41, 44, None, "P0r6P1r5P2r6P3r5"]
+            },
+            # 6.4.8.2.3	S3-JM-02: fixed Intra every second
+            'S3-JM-02': {
+                '22': [22, 22, None, None],
+                '27': [27, 27, None, None],
+                '32': [32, 32, None, None],
+                '37': [37, 37, None, None],
+                '42': [42, 42, None, None]
+            },
+            # 6.5.8.2.3	S4-JM-01: no Intra, same parameters as for S5-JM-01 as documented in clause 6.6.8.2.3 are used.
+            'S4-JM-01': {
+                '22': [21, 24, 24, "B0r3B1r2B2r3B3r2"],
+                '27': [26, 29, 29, "B0r5B1r4B2r5B3r4"],
+                '32': [31, 34, 34, "B0r6B1r5B2r6B3r5"],
+                '37': [36, 39, 39, "B0r6B1r5B2r6B3r5"]
+            },
+            # 6.5.8.2.4	S4-JM-02: Intra, same parameters as for S5-JM-02 as documented in clause 6.6.8.2.4 are used.
+            'S4-JM-02': {
+                '22': [22, 22, 22, None],
+                '27': [27, 27, 27, None],
+                '32': [32, 32, 32, None],
+                '37': [37, 37, 37, None]
+            },
+            # 6.6.8.2.3	S5-JM-01: no Intra
+            'S5-JM-01': {
+                '22': [21, 24, 24, "B0r3B1r2B2r3B3r2"],
+                '27': [26, 29, 29, "B0r5B1r4B2r5B3r4"],
+                '32': [31, 34, 34, "B0r6B1r5B2r6B3r5"],
+                '37': [36, 39, 39, "B0r6B1r5B2r6B3r5"]
+            },
+            # 6.6.8.2.4	S5-JM-02: Intra near 1 sec
+            'S5-JM-02': {
+                '22': [22, 22, 22, None],
+                '27': [27, 27, 27, None],
+                '32': [32, 32, 32, None],
+                '37': [37, 37, 37, None]
+            }
+        }
+        qpi, qpf, qpb, ehf = quantization_cfg[a.encoder_cfg_key][qp]
+        qp_args = [
+            '-p', f'QPISlice={qpi}',
+            '-p', f'QPPSlice={qpf}'
+        ]
+        if qpb is not None:
+            qp_args += ['-p', f'QPBSlice={qpb}']
+        if ehf is not None:
+            qp_args += ['-p', f'ExplicitHierarchyFormat={ehf}']
+        
+        if a.encoder_cfg_key in  ['S1-JM-01', 'S4-JM-02', 'S5-JM-02']:
+            # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
+            if a.reference.frame_rate <= 30:
+                qp_args += ['-p', 'IntraPeriod=32'] 
+            elif a.reference.frame_rate <= 60:
+                qp_args += ['-p', 'IntraPeriod=64']
+        elif a.encoder_cfg_key == 'S3-JM-02':
+            # 6.4.8.2.3	S3-JM-02: fixed Intra every second
+            qp_args += ['-p', f'IntraPeriod={int(a.reference.frame_rate)}']
+        return qp_args
 
     @classmethod
-    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
-        # tracefile = a.anchor.working_dir / f'{a.basename}.enc.trace.txt'
-        # statsfile = a.anchor.working_dir / f'{a.basename}.enc.stats.dat'
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         args = [
-            "-d", f'{a.encoder_cfg}',
-            # "-p", "DisplayEncParams=1",
+            "-d", str(a.encoder_cfg),
             "-p", f'InputFile={a.reference.path}',
             "-p", f'OutputFile={bitstream}',
             "-p", f'FrameRate={float(a.reference.frame_rate)}',
@@ -414,9 +474,7 @@ class JM(EncoderBase):
             "-p", f'OutputWidth={a.reference.width}',
             "-p", f'OutputHeight={a.reference.height}',
             "-p", f'SourceBitDepthLuma={a.reference.bit_depth}',
-            "-p", f'SourceBitDepthChroma={a.reference.bit_depth}',
-            # "-p", f'TraceFile={tracefile}',
-            # "-p", f'StatsFile={statsfile}'
+            "-p", f'SourceBitDepthChroma={a.reference.bit_depth}'
         ]
 
         if a.reference.interleaved:
@@ -443,7 +501,7 @@ class JM(EncoderBase):
         if reconstruction is not None:
             args += ["-p", f'ReconFile={reconstruction}']
 
-        args += cls.get_variant_cli(variant_cli)
+        args += cls.get_variant_cmd(a, variant_qp)
 
         return args
 
@@ -461,12 +519,11 @@ class ETM(EncoderBase):
     decoder_bin = "ETM_DECODER"
 
     @classmethod
-    def get_variant_cli(cls, args: str) -> List[str]:
-        qp = parse_variant_qp(args)
+    def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
         return ['-q', str(qp)]
 
     @classmethod
-    def get_encoder_cmd(cls, a: AnchorTuple, variant_cli: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
+    def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
         assert a.reference.chroma_format == ChromaFormat.YUV, 'RGB chroma format not supported'
         assert a.reference.bit_depth in [8, 10], f'invalid reference bitdepth {a.reference.bit_depth} | supported: [8,10]'
         assert not a.reference.interleaved, 'interleaved format not supported'
@@ -495,7 +552,7 @@ class ETM(EncoderBase):
         if reconstruction:
             args += ['-r', reconstruction]
 
-        args += cls.get_variant_cli(variant_cli)
+        args += cls.get_variant_cmd(a, variant_qp)
 
         return args
 

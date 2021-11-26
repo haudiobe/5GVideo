@@ -9,7 +9,7 @@ from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, iter_variants
 from utils import run_process
-from encoders import get_encoder, parse_variant_qp
+from encoders import get_encoder
 from conversion import Conversion, as_10bit_sequence, as_exr2020_sequence, get_anchor_conversion_type, hdr_convert_cmd_8to10bits
 
 class VideoFormatException(BaseException):
@@ -428,7 +428,8 @@ def anchor_metrics_to_csv(a: AnchorTuple, dst: Path = None):
             row = {}
             for k in fieldnames:
                 if k == "parameter":
-                    row[k] = parse_variant_qp(variant_data.variant_cli)
+                    variant_data.variant_id
+                    row[k] = variant_data.variant_id
                 else:
                     row[k] = variant_data.metrics[k]
             writer.writerow(row)

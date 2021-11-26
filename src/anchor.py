@@ -266,13 +266,13 @@ class VariantData:
             return VariantData(generation, bitstream, reconstruction, metrics, verification, contact, copyright)
 
     @classmethod
-    def new(cls, a: 'AnchorTuple', variant_id: str, variant_cli: str, encoder_log: Path, bitstream_fp: Path, reconstruction: 'ReconstructionMeta') -> 'VariantData':
+    def new(cls, a: 'AnchorTuple', variant_id: str, variant_qp: str, encoder_log: Path, bitstream_fp: Path, reconstruction: 'ReconstructionMeta') -> 'VariantData':
         generation = {
             "key": variant_id,
             "sequence": a.reference.path.name,
             "encoder": a.encoder_id,
             "config-file": a.encoder_cfg.name,
-            "variant": variant_cli,
+            "variant": variant_qp,
             "log-file": encoder_log.name
         }
         bitstream = {
@@ -319,7 +319,7 @@ class VariantData:
         return self._bitstream["key"]
 
     @property
-    def variant_cli(self) -> str:
+    def variant_qp(self) -> str:
         return self._generation["variant"]
 
     @property
@@ -495,8 +495,8 @@ class AnchorTuple:
         return self._description
 
     @property
-    def basename(self):
-        return self.encoder_cfg.stem
+    def encoder_cfg_key(self):
+        return self.encoder_cfg.stem.upper()
 
     def iter_variants_args(self) -> Generator[Tuple[str, list], None, None]:
         """generator to iterate over (variant_id, variant_encoder_args)
@@ -506,7 +506,7 @@ class AnchorTuple:
                 variant_encoder_args is stored as is in the bitstream json metadata.
         """
         for qp in self._variants:
-            yield self._anchor_key.replace('<QP>', str(qp)), f'-qp {qp}'
+            yield self._anchor_key.replace('<QP>', str(qp)), str(qp)
 
     @property
     def anchor_key(self):
@@ -560,7 +560,7 @@ def reference_sequences_dict(reference_list: Path, root_dir: Path = Path('.'), r
             if vs.sequence:
                 vs.sequence['Key'] = k
             dur = float(row[RefSequenceList.DUR])
-            if not math.isclose(vs.frame_count / vs.frame_rate, dur):
+            if not math.isclose(vs.frame_count / vs.frame_rate, dur, 1e-02):
                 print(f'# (frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
             refs[k] = vs
     return refs

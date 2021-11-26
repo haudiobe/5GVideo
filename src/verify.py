@@ -262,7 +262,7 @@ def verify_variant_bitstream(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir:
     if not a.dry_run:
         tmp.mkdir(exist_ok=True)
 
-    vd_new = enc.encode_variant(a, vd.variant_id, vd.variant_cli, tmp)
+    vd_new = enc.encode_variant(a, vd.variant_id, vd.variant_qp, tmp)
 
     if a.dry_run:
         return True, None
