@@ -560,8 +560,6 @@ def reference_sequences_dict(reference_list: Path, root_dir: Path = Path('.'), r
             if vs.sequence:
                 vs.sequence['Key'] = k
             dur = float(row[RefSequenceList.DUR])
-            if not math.isclose(vs.frame_count / vs.frame_rate, dur, 1e-02):
-                print(f'# (frame_count:{vs.frame_count} / frame_rate:{vs.frame_rate}):{(vs.frame_count / vs.frame_rate)} != "duration:{dur} found in `scenario/reference-sequence.csv` file for `{k}`"')
             refs[k] = vs
     return refs
 
