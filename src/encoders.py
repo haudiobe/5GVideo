@@ -84,6 +84,11 @@ class EncoderBase(ABC):
         """
         encode the variant and return VariantData
         """
+        src = a.reference.path
+        assert src.exists(), f'File not found: {src}'
+        cfg = a.encoder_cfg
+        assert cfg.exists(), f'File not found: {cfg}'
+
         if dst_dir is not None:
             assert dst_dir.is_dir(), 'target directory not found'
         else:
@@ -100,7 +105,8 @@ class EncoderBase(ABC):
         
         cmd = cls.get_encoder_cmd(a, variant_qp, bitstream, reconstruction)
         
-        run_process(logfile, encoder, *cmd, dry_run=a.dry_run, cwd=Path(encoder).parent)
+        cfg_dir = Path(encoder).parent
+        run_process(logfile, encoder, *cmd, dry_run=a.dry_run, cwd=cfg_dir)
         assert a.dry_run or reconstruction.exists(), 'reconstruction not found'
 
         dist = VideoSequence(reconstruction, **a.reference.properties)
@@ -211,7 +217,7 @@ def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path
         "--MatrixCoefficients": a.reference.matrix_coefficients.value,
         "--TransferCharacteristics": a.reference.transfer_characteristics.value,
         "--ColourPrimaries": a.reference.colour_primaries.value,
-        "--VideoFullRange": "1" if a.reference.video_full_range else "0",
+        "--VideoFullRange": str(a.reference.video_full_range),
         "--ChromaSampleLocTypeTopField": f'{a.reference.chroma_sample_loc_type}',
         "--ChromaSampleLocTypeBottomField": f'{a.reference.chroma_sample_loc_type}',
         "--SEIDecodedPictureHash": "1",
@@ -468,7 +474,7 @@ class JM(EncoderBase):
             "-p", f'OutputFile={bitstream}',
             "-p", f'FrameRate={float(a.reference.frame_rate)}',
             "-p", f'StartFrame={a.start_frame -1}',
-            "-p", f'FramesToBeEncoded={a.frame_count}',
+            "-p", f'FramesToBeEncoded=2'# {a.frame_count}',
             "-p", f'SourceWidth={a.reference.width}',
             "-p", f'SourceHeight={a.reference.height}',
             "-p", f'OutputWidth={a.reference.width}',
@@ -481,13 +487,14 @@ class JM(EncoderBase):
             args += ["-p", "Interleaved=1"]
 
         if int(a.reference.chroma_format == ChromaFormat.RGB):
-            args += ["-p", 'RGBInput=0']
-        else:
             args += ["-p", 'RGBInput=1']
-            if a.reference.video_full_range:
-                args += ["-p", f'StandardRange=0']
-            else:
-                args += ["-p", f'StandardRange=1']
+        else:
+            args += ["-p", 'RGBInput=0']
+
+        if a.reference.video_full_range == 1:
+            args += ["-p", f'StandardRange=0']
+        else:
+            args += ["-p", f'StandardRange=1']
 
         if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
             args += ["-p", 'YUVFormat=0']

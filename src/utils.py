@@ -63,30 +63,21 @@ def run_process(log: str, *cmd, dry_run=False, verbose=True, cwd=None):
         return
     logfile = open(log, 'w')
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
-    while True:
+    while proc.poll() is None:
         out = proc.stdout.readline().decode('utf-8')
         logfile.write(out)
         print(out.rstrip('\n'))
-        if proc.poll() is not None:
-            proc.stdout.flush()
-            while True:
-                l = proc.stdout.readline()
-                if l:
-                    out = l.decode('utf-8')
-                    logfile.write(out)
-                else:
-                    break
-            # print(out.rstrip('\n'))
-            print(f'\n# exit code: {proc.returncode} - {cmd[0]}')
-            print("#" * 128 + "\n")
-            if proc.returncode != 0:
-                proc.terminate()
-                raise Exception(f'command failled {proc.returncode}: {out}')
-            break
+    proc.stdout.flush()
+    for l in proc.stdout:
+        out = l.decode('utf-8')
+        logfile.write(out)
+        print(out.rstrip('\n'))
     logfile.flush()
     logfile.close()
     proc.stdout.close()
     proc.terminate()
+    if proc.returncode != 0:
+        raise Exception(f'exit code: {proc.returncode} - {cmd}')
 
 
 class VideoInfo:
@@ -156,11 +147,14 @@ class VideoSequence(VideoInfo):
         self.sequence = sequence
         super().__init__(**properties)
 
+    @property
+    def uri(self) -> str:
+        return self.sequence.get('URI', None)
+
     def dump(self, path: Path):
-        ref = self.sequence
-        ref["URI"] = str(self.path.name)
+        self.sequence['URI'] = str(self.path)
         data = {
-            "Sequence": ref,
+            "Sequence": self.sequence,
             "Properties": self.properties,
             "copyRight": self.copyright,
             "Contact": self.contact
@@ -175,7 +169,7 @@ class VideoSequence(VideoInfo):
         """minimal metadata json:
         {
             "Sequence":{
-                "URI": "path/to/sequence.yuv",
+                "URI": "https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/ReferenceSequences/[Location]/[Name].yuv",
                 "md5": "74f80ff8c2237157060ee05f8358d88d"
             },
             "Properties": {
@@ -200,7 +194,6 @@ class VideoSequence(VideoInfo):
         }
         """
         data = None
-
         try:
             with open(metadata, 'r') as reader:
                 data = json.load(reader)
@@ -208,14 +201,15 @@ class VideoSequence(VideoInfo):
             raise Exception(f'missing sidecar metadata for {metadata}')
 
         assert 'Sequence' in data, f"{metadata}\n'Sequence' not specified in metadata"
-        assert 'URI' in data['Sequence'], f"{metadata}\n'URI' key missing from 'Sequence' metadata"
+        assert 'URI' in data['Sequence'], f"{metadata}\n'URI' missing from 'Sequence' metadata"
+        
         uri = Path(data['Sequence']['URI'])
+        # raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])
+        local_file = Path(metadata).parent / uri.name  # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
 
         if 'md5' not in data['Sequence']:
             print(f"/!\\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}")
-
         data['Sequence']['Key'] = None  # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.
-        raw_sequence = Path(metadata).parent / Path(data['Sequence']['URI'])  # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
         contact = None
         cc = None
 
@@ -224,4 +218,4 @@ class VideoSequence(VideoInfo):
         contact = data.get('Contact', None)
         cc = data.get('copyRight', None)
 
-        return VideoSequence(raw_sequence, copyright=cc, contact=contact, sequence=data['Sequence'], **props)
+        return VideoSequence(local_file, copyright=cc, contact=contact, sequence=data['Sequence'], **props)

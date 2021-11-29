@@ -155,7 +155,7 @@ def as_exr2020_sequence(yuv_in: VideoSequence) -> VideoSequence:
     exr_out.chroma_format = ChromaFormat.RGB
     exr_out.transfer_characteristics = TransferFunction.NONE
     exr_out.colour_primaries = ColorPrimaries.BT_2020
-    exr_out.video_full_range = "1"
+    exr_out.video_full_range = 1
     return exr_out
 
 

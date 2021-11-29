@@ -559,7 +559,6 @@ def reference_sequences_dict(reference_list: Path, root_dir: Path = Path('.'), r
             vs = VideoSequence.from_sidecar_metadata(meta)
             if vs.sequence:
                 vs.sequence['Key'] = k
-            dur = float(row[RefSequenceList.DUR])
             refs[k] = vs
     return refs
 
