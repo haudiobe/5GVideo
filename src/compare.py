@@ -1,19 +1,16 @@
+import click
+import csv
 from pathlib import Path
 from typing import Iterable, List, Tuple, Any
+import numpy as np
+import scipy.interpolate
 import matplotlib.pyplot as plt
 plt.ioff()
-
 from matplotlib.figure import Figure
 
-import numpy as np
-# from numpy.typing import ArrayLike, DTypeLike
-
-import scipy.interpolate
-
-from anchor import VariantData, VariantMetricSet, Metric, iter_variants, AnchorTuple, iter_anchors
-import csv
-
-import click
+from constants import BITSTREAMS_DIR, SEQUENCES_DIR
+from anchor import VariantData, VariantMetricSet, Metric, load_variants, AnchorTuple
+from metrics import load_csv_metrics
 
 
 def sort_rates_on(rates, metric):
@@ -63,24 +60,21 @@ def sanitize_rd_data(rates, dist, step=0.001):
     return rate, np.array(dist_fix, dtype=np.float64)
 
 
-def rd_metrics(variants: List[VariantData], rate="BitrateLog", dist="PSNR") -> Iterable[Any]:
+def rd_metrics(variants: List[VariantData], rate:Metric, dist:Metric) -> Iterable[Any]:
     # return zip(*[(v.metrics[rate], v.metrics[dist]) for v in variants])
     rd = []
     for v in variants:
         r = v.metrics[rate]
-        if int(r) == 0:
-            r = v.metrics["Bitrate"]
         if dist in v.metrics:
             rd.append((r, v.metrics[dist]))
         else:
             rd.append((r, 0.000))
     return zip(*rd)
 
-def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], rate="BitrateLog", dist=None, title="", strict=False, sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], rate:Metric, dist:Metric, title="", strict=False, sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     try:
-        print("#", dist, "#" * (32 - len(str(dist))))
         return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, title=title, dist_label=None)
     except BaseException as e:
         if strict:
@@ -88,70 +82,37 @@ def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], 
         raise ValueError(f'A:{anchor_metrics} | T:{test_metrics} | Err: {e}')
 
 
-def variant_metrics_to_csv(variants, path='./variants.csv', csv_append=False, csv_headers=True):
-    with open(path, 'a' if csv_append else 'w', newline='') as csvfile:
-        fieldnames = [
-            "ID",
-            "BitrateLog",
-            "YPSNR",
-            "UPSNR",
-            "VPSNR",
-            "MS_SSIM",
-            "VMAF",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        if csv_headers:
-            writer.writeheader()
-        for v in variants:
-            row = {k: v for [k, v] in v.metrics.items() if k in fieldnames}
-            row['ID'] = v.variant_id
-            writer.writerow(row)
+def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], strict=False, sanitize=True, save_plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
 
+    anchor_variants = [v for (_, v) in load_variants(anchor)]
+    load_csv_metrics(anchor, anchor_variants)
 
-def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[str], strict=False, sanitize=True, save_plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
-
-    anchor_variants = [v[1] for v in iter_variants(anchor)]
-    test_variants = [v[1] for v in iter_variants(test)]
-
-    vms = VariantMetricSet()
+    test_variants = [v for (_, v) in load_variants(test)]
+    load_csv_metrics(test, test_variants)
+    
+    res = {}
     fig = None
-    for key in metrics:
+    for m in metrics:
         try:
-            # plot_title = f'RD-curve & BD-rate for {key}\n'\
-            #     f'[sequence] {anchor.reference.sequence["Key"]} | {anchor.reference.sequence["Name"]}\n'\
-            #     f'[anchor] {anchor.encoder_cfg.name} @ {anchor._variants}\n'\
-            #     f'[test] {test.encoder_cfg.name} @ {test._variants}'
-            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, rate="BitrateLog", dist=key, strict=strict, sanitize=sanitize, title=None)
-            vms[key] = f'{round(bd, 3):.3f}'
-            if save_plots and (key in save_plots):
-                # t = f'bd-rate @{key} | {vms[key]}'
-                # if sanitize:
-                #     t += ' [sanitized]'
-                # fig = rd_plot(r0, d0, r1, d1, key, title=t, anchor_label=anchor.anchor_key, test_label=test.anchor_key, show=False)
-                fname = test.working_dir / 'Metrics' / f'{anchor.working_dir.name}.{test.working_dir.name}.{key}.png'.lower()
+            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, rate=Metric.BITRATE, dist=m, strict=strict, sanitize=sanitize, title=None)
+            res[m] = f'{round(bd, 3):.3f}'
+            if save_plots:
+                fname = test.working_dir / 'Characterization' / f'{anchor.working_dir.name}.{test.working_dir.name}.{m}.png'.lower()
                 if not fname.parent.exists():
                     fname.parent.mkdir()
                 fig.savefig(fname)
-                plt.close()
+                plt.close(fig)
 
         except KeyError as e:
             print(e)
         except BaseException as e:
             if fig:
-                fig.close()
+                plt.close(fig)
             if strict:
                 raise
-            vms[key] = str(e)
+            res[m] = str(e)
 
-    return anchor.reference.sequence['Key'], vms
-
-
-def _parse_filter(fp: Path):
-    arr = fp.name.split("@")
-    if len(arr) > 1:
-        return fp.parent / "@".join(arr[:-1]), arr[-1]
-    else:
-        return fp, None
+    return anchor.reference.sequence['Key'], res
 
 
 def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metrics: List[str], strict=False, save_plots=True):
@@ -161,17 +122,20 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
     bd_rates = []
 
     for aref, atest in zip(anchors, tests):
-        vref = [v for (_, v) in iter_variants(aref)]
-        vtest = [v for (_, v) in iter_variants(atest)]
+
+        vref = [v for (_, v) in load_variants(aref)]
+        load_csv_metrics(aref, vref)
+
+        vtest = [v for (_, v) in load_variants(atest)]
+        load_csv_metrics(atest, vtest)
+
         arates = {}
-        print("\n" + "=" * 35)
-        print(f"{aref.anchor_key} vs {atest.anchor_key}\n" + "=" * 35)
         for key in metrics:
             try:
-                fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate="BitrateLog", dist=key)
+                fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate=Metric.BITRATE, dist=key)
                 arates[key] = f'{round(bd, 3):.3f}'
                 if save_plots:
-                    fname = atest.working_dir.parent / 'Metrics' / (f'{aref.working_dir.name}.{atest.working_dir.name}'.upper() + f'{key}.png'.lower())
+                    fname = atest.working_dir.parent / 'Characterization' / (f'{aref.working_dir.name}.{atest.working_dir.name}'.upper() + f'{key}.png'.lower())
                     if not fname.parent.exists():
                         fname.parent.mkdir()
                     fig.savefig(fname)
@@ -190,15 +154,7 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
     return [(r.reference.sequence['Key'], bdr) for (r, _, bdr) in bd_rates]
 
 
-def csv_dump(data, fp):
-    fieldnames = [
-        'reference',
-        Metric.PSNR_Y.key,
-        Metric.PSNR.key,
-        Metric.MSSSIM.key,
-        Metric.VMAF.key
-    ]
-
+def csv_dump(data, fp, metrics, extras=['reference']):
     stats = {
         'min': {},
         'max': {},
@@ -209,7 +165,8 @@ def csv_dump(data, fp):
         fp.parent.mkdir(exist_ok=True, parents=True)
 
     with open(fp, 'w', newline='') as f:
-
+        
+        fieldnames = extras + [k.csv_key for k in metrics]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
 
@@ -217,14 +174,18 @@ def csv_dump(data, fp):
 
             row = {}
 
-            for k in fieldnames:
+            for k in extras:
                 row[k] = r[k]
+
+            for k in metrics:
+                row[k.csv_key] = r[k]
+
                 if len(data) == 1:
                     continue
                 if k == "reference":
                     continue
 
-                v = row[k]
+                v = row[k.csv_key]
                 if v is None or type(v) == str:
                     continue
                 if k in stats["min"]:
@@ -246,24 +207,24 @@ def csv_dump(data, fp):
             return
 
         r = {"reference": "Min"}
-        for k in fieldnames[1:]:
-            r[k] = stats["min"].get(k, None)
+        for k in metrics:
+            r[k.csv_key] = stats["min"].get(k, None)
         writer.writerow(r)
 
         r = {"reference": "Max"}
-        for k in fieldnames[1:]:
-            r[k] = stats["max"].get(k, None)
+        for k in metrics:
+            r[k.csv_key] = stats["max"].get(k, None)
         writer.writerow(r)
 
         r = {"reference": "Avg"}
-        for k in fieldnames[1:]:
+        for k in metrics:
             avg = None
             if k in stats["avg"] and len(stats["avg"][k]):
                 avg = 0
                 for j in stats["avg"][k]:
                     avg += j
                 avg /= len(stats["avg"][k])
-            r[k] = avg
+            r[k.csv_key] = avg
         writer.writerow(r)
 
 
@@ -274,7 +235,7 @@ def strictly_increasing(samples):
     return True
 
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
         [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
@@ -316,7 +277,8 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None
         avg_exp_diff = (int2 - int1) / (max_int - min_int)
         avg_diff = (np.exp(avg_exp_diff) - 1) * -100
 
-        fig, axs = plt.subplots(1, 3, figsize=(30, 12))
+        nplots = 3 if debug else 2
+        fig, axs = plt.subplots(1, nplots, figsize=(30, 12))
 
         axs[0].plot(R1, DIST1, 'o-', R2, DIST2, 'o-')
         axs[0].set_xlabel('bitrate', fontsize=21)
@@ -346,11 +308,12 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None
         if title and title != "":
             fig.suptitle(title, fontsize=21)
 
-        x = [i * interval for i in range(100)]
-        axs[2].set_xlabel('composite trapezoidal integration', fontsize=21)
-        axs[2].plot(x, v1, '-', label="anchor (interpolated)")
-        axs[2].plot(x, v2, '-', label="test (interpolated)")
-        axs[2].fill_between(x, v1, v2, color='red', alpha=0.75)
+        if debug:
+            x = [i * interval for i in range(100)]
+            axs[2].set_xlabel('composite trapezoidal integration', fontsize=21)
+            axs[2].plot(x, v1, '-', label="anchor (interpolated)")
+            axs[2].plot(x, v2, '-', label="test (interpolated)")
+            axs[2].fill_between(x, v1, v2, color='red', alpha=0.75)
 
     except ValueError as ve:
         print(ve)
@@ -360,34 +323,56 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None
     return fig, avg_diff, R1, DIST1, R2, DIST2
 
 
+
+
+
+
+
+
 @click.command()
-@click.option('--root-dir', envvar='VCC_WORKING_DIR', type=click.Path(exists=True, file_okay=False, writable=True, readable=True))
-@click.option('-s/-c', required=True, default=True, help="whether anchor/test keys are:\n 1. sequence IDs, eg. '-s S1-A01-264 S1-A01-265'\n 2. encoder configs IDs, eg. '-c S1-JM-01 S1-HM-01'")
-@click.argument('anchor', nargs=1)
-@click.argument('test', nargs=1)
-def main(root_dir, s, anchor, test):
-    root_dir = Path(root_dir)
-    # TODO: check support HDR keys
-    metric_keys = (Metric.PSNR_Y, Metric.PSNR, Metric.MSSSIM, Metric.VMAF)
-    if s:  # eg. '-s S1-A01-264 S1-A01-265'
-        anchor = AnchorTuple.load(anchor, root_dir)
-        test = AnchorTuple.load(test, root_dir)
-        metrics = [m.key for m in metric_keys]
-        compare_sequences(anchor, test, metrics, strict=True, save_plots=metrics)
+@click.option('--working-dir', envvar='VCC_WORKING_DIR', required=True,
+    type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True),
+    help="directory containing bitstreams and pre-computed metrics, can be set with VCC_WORKING_DIR environment variable." )
+@click.option('-s/-c', required=True, default=True, help="specifies if anchor/test are: sequence IDs or encoder configs IDs")
+@click.argument('anchor_key', required=True)
+@click.argument('test_key', required=True)
+def main(working_dir:str, s:bool, anchor_key:str, test_key:str):
+    """
+    /!\\ The script needs data to follow data organization as found in: https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
+    \b
+
+    \b
+    Comparing anchors using sequence IDs S1-A01-264 to S1-T01-ETM:
+    \b
+        compare.py -s S1-A01-264 S1-T01-ETM
+
+    \b
+    Comparing encoder config 'S1-JM-01' to 'S1-HM-01':
+    \b
+        compare.py -c S1-JM-01 S1-HM-01
+    """
+    root_dir = Path(working_dir)
+    bitstreams_dir = root_dir / BITSTREAMS_DIR
+    sequences_dir = root_dir / SEQUENCES_DIR
+    
+    if s:
+        anchor = AnchorTuple.load(anchor_key, bitstreams_dir, sequences_dir)
+        test = AnchorTuple.load(test_key, bitstreams_dir, sequences_dir)
+        metrics = [m for m in anchor.get_metrics_set() if m not in ( Metric.BITRATE, Metric.BITRATELOG )]
+        _ = compare_sequences(anchor, test, metrics, strict=True, save_plots=True)
 
     else:
+        anchors = AnchorTuple.iter_cfg_anchors(anchor_key, bitstreams_dir, sequences_dir)
+        tests = AnchorTuple.iter_cfg_anchors(test_key, bitstreams_dir, sequences_dir)
+        t = tests[-1]
         data = []
-        anchors = AnchorTuple.iter_cfg_anchors(anchor, root_dir=root_dir)
-        tests = AnchorTuple.iter_cfg_anchors(test, root_dir=root_dir)
-        if tests[-1] is None:
-            raise ValueError(f'{test} data not found')
-        outp = tests[-1].working_dir.parent  / 'Metrics' / f'{anchor}.{test}.csv'.lower()
-        metrics = [m.key for m in metric_keys]
-        for (seqid, r) in compare_anchors(anchors, tests, metrics, strict=True, save_plots=True):
+        metrics = t.get_metrics_set()
+        metrics = [m for m in t.get_metrics_set() if m not in ( Metric.BITRATE, Metric.BITRATELOG )]
+        for (seqid, r) in compare_anchors(anchors, tests, metrics, strict=True, save_plots=False):
             r['reference'] = seqid
             data.append(r)
-
-        csv_dump(data, outp)
+        outp = t.working_dir.parent  / 'Characterization' / f'{anchor_key}.{test_key}.csv'.lower()
+        csv_dump(data, outp, metrics)
 
 if __name__ == "__main__":
     main()

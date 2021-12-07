@@ -1,47 +1,24 @@
+from logging import StreamHandler
+import click
+
 from pathlib import Path
 import struct
 import io
 import os
 import json
 import csv
+from typing import Any, Dict, List
 
-from utils import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
-
-from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, iter_variants
-from utils import run_process
+from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, load_variants
 from encoders import get_encoder
 from conversion import Conversion, as_10bit_sequence, as_exr2020_sequence, get_anchor_conversion_type, hdr_convert_cmd_8to10bits
+from constants import BITSTREAMS_DIR, SEQUENCES_DIR, ENCODING
+
+from sequences import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
+from utils import run_process
 
 class VideoFormatException(BaseException):
     pass
-
-
-BASE_METRICS = (
-    Metric.BITRATELOG,
-    Metric.BITRATE,
-    Metric.ENCODETIME,
-    Metric.DECODETIME
-)
-
-SDR_METRICS = (
-    Metric.PSNR_Y,
-    Metric.PSNR_U,
-    Metric.PSNR_V,
-    Metric.PSNR,
-    Metric.MSSSIM, 
-    Metric.VMAF,
-)
-
-HDR_METRICS = (
-    Metric.WTPSNR,
-    # Metric.GSSIM,
-    Metric.DELTAE100,
-    Metric.PSNR,
-    Metric.MSSSIM, 
-    Metric.VMAF,
-)
-
-
 
 def iter_section(f: io.FileIO, esc="-", eof_raises=False):
     line = f.readline()
@@ -151,7 +128,7 @@ def hdrtools_input(v: VideoSequence, ref=True, file_header=0):
     return opts
 
 
-def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, dry_run=False, cfg: Path = None) -> dict:
+def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, log: Path, dry_run=False, cfg: Path = None) -> dict:
     if os.getenv('DISABLE_HDRMETRICS'):
         return
     
@@ -164,36 +141,17 @@ def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, dry_run=False, cfg
         '-p', f'NumberOfFrames={dist.frame_count}'
     ]
 
-    tool = os.getenv('HDRMETRICS_TOOL', None)
-    assert tool, 'missing environment variable, path to exe: HDRMETRICS_TOOL'
+    tool = os.getenv('HDRMETRICS_TOOL', 'HDRMetrics')
     cmd = [tool, *input0, *input1, *run]
 
-    log = dist.path.with_suffix('.metrics.log')
     run_process(log, *cmd, dry_run=dry_run)
     if log.exists():
         data = parse_metrics(log)
         metrics = {k: v for k, v in zip(data['metrics'], data['avg'])}
         return metrics
     else:
-        assert not dry_run, f'HDRMetrics log file not found: {log}'
+        assert dry_run, f'HDRMetrics log file not found: {log}'
         return {}
-
-
-def bitstream_size(bitstream: Path, drop_sei=False) -> int:
-    tmp = None
-    if drop_sei:
-        # expecting SEIRemovalAppStatic built from HM16.23
-        tool = os.getenv('SEI_REMOVAL_APP')
-        assert tool, 'missing env variable: SEI_REMOVAL_APP'
-        tmp = bitstream.with_suffix('.tmp')
-        cmd = [tool, '-b', str(bitstream), '-o', str(tmp), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
-        log = bitstream.with_suffix('.seiremoval.log')
-        run_process(log, *cmd, dry_run=False)
-    s = int(os.path.getsize(tmp if tmp else bitstream))
-    if tmp:
-        os.remove(tmp)
-        os.remove(log)
-    return s
 
 
 def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0.6.1", dry_run=False):
@@ -256,55 +214,57 @@ def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0
         return None
 
 
-def compute_sdr_metrics(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetrics_PSNR_MSSSIM.cfg')
+def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
+    hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetrics_PSNR_MSSSIM.cfg'
     dist = None
     conv = get_anchor_conversion_type(a)
     if conv == Conversion.NONE:
         ref = a.reference
         dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        if dist.bit_depth == -1:
-            dist.bit_depth = ref.bit_depth
-            dist.dump(a.working_dir / f'{vd.variant_id}.yuv.json')
-        else:
-            assert ref.bit_depth == dist.bit_depth
+        """
+        dist.path =  a.working_dir / f'{vd.variant_id}.yuv'
+        dist.dump(a.working_dir / f'{vd.variant_id}.yuv.json')
+        """
+        assert ref.bit_depth == dist.bit_depth
 
     elif conv == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(a.reference)
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
         vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
         dist = as_10bit_sequence(vs)
+        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {ref.path}'
 
     else:
         raise ValueError("Invalid conversion type for SDR metrics")
     
-    d = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg= hdr_metrics_cfg if hdr_metrics_cfg is None else Path(hdr_metrics_cfg)) 
-    result = {
-        Metric.PSNR_Y.key: d["PSNR-Y"],
-        Metric.PSNR_U.key: d["PSNR-U"],
-        Metric.PSNR_V.key: d["PSNR-V"],
-        Metric.MSSSIM.key: d["JMSSSIM-Y"]
-    }
-    return VariantMetricSet(result)
+    log = dist.path.with_suffix('.metrics.log')
+    d = hdrtools_metrics(ref, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg ) 
+    res = VariantMetricSet({
+        Metric.PSNR_Y: d["PSNR-Y"],
+        Metric.PSNR_U: d["PSNR-U"],
+        Metric.PSNR_V: d["PSNR-V"],
+        Metric.MSSSIM: d["JMSSSIM-Y"]
+    })
+    res.compute_avg_psnr()
+    return res
     
 
-def compute_hdr_metrics_yuv(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetricsYUV_PQ10.cfg')
+def compute_hdr_metrics_yuv(a: AnchorTuple, vd: VariantData, dry_run=False):
+    hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetricsYUV_PQ10.cfg'
     dist = VideoSequence.from_sidecar_metadata(a.working_dir / f'{vd.variant_id}.yuv.json')
-    
-    cfg = hdr_metrics_cfg if hdr_metrics_cfg is None else Path(hdr_metrics_cfg)
-    
-    d = hdrtools_metrics(a.reference, dist, dry_run=a.dry_run, cfg= cfg)
-    result = {
-        Metric.WTPSNR_Y.key: d["wtPSNR-Y"],
-        Metric.WTPSNR_U.key: d["wtPSNR-U"],
-        Metric.WTPSNR_V.key: d["wtPSNR-V"]
-    }
-    return VariantMetricSet(result)
+    log = dist.path.with_suffix('.metrics.log')
+    d = hdrtools_metrics(a.reference, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg)
+    res = VariantMetricSet({
+        Metric.WTPSNR_Y: d["wtPSNR-Y"],
+        Metric.WTPSNR_U: d["wtPSNR-U"],
+        Metric.WTPSNR_V: d["wtPSNR-V"]
+    })
+    res.compute_avg_wpsnr()
+    return res
 
 
-def compute_hdr_metrics_exr(a: AnchorTuple, vd: VariantData):
-    hdr_metrics_cfg = os.getenv('HDRMETRICS_CFG', '/home/cfg/HDRMetrics_DeltaE100.cfg')
+def compute_hdr_metrics_exr(a: AnchorTuple, vd: VariantData, dry_run=False):
+    hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetrics_DeltaE100.cfg'
  
     ref = as_exr2020_sequence(a.reference)
     fp = ref.path.with_suffix('.json')
@@ -315,16 +275,15 @@ def compute_hdr_metrics_exr(a: AnchorTuple, vd: VariantData):
     fp = dist.path.with_suffix('.json')
     assert fp.exists(), f'reference sequence needs pre-processing - Not found: {fp}'
 
-    d = hdrtools_metrics(ref, dist, dry_run=a.dry_run, cfg= hdr_metrics_cfg if hdr_metrics_cfg is None else Path(hdr_metrics_cfg)) 
+    log = dist.path.with_suffix('.metrics.log')
+    d = hdrtools_metrics(ref, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg) 
     result = {
-        Metric.PSNR_DE0100.key: d["PSNR_DE0100"],
-        Metric.PSNR_L0100.key: d["PSNR_L0100"],
-        Metric.PSNR_MD0100.key: d["PSNR_L0100"]
+        Metric.PSNR_L0100: d["PSNR_L0100"],
     }
     return VariantMetricSet(result)
 
 
-def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData):
+def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     conv = get_anchor_conversion_type(a)
     if conv == Conversion.NONE:
         ref = a.reference
@@ -334,103 +293,230 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData):
     elif conv == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(a.reference)
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
-        dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
+        vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
+        dist = as_10bit_sequence(vs)
         assert ref.bit_depth == dist.bit_depth
 
     else:
         raise ValueError("Invalid conversion type for vmaf")
 
     vmaf_model = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
-    d = vmaf_metrics(ref, dist, model=vmaf_model, dry_run=a.dry_run)
-    filtered = {m : d[m] for m in [ Metric.VMAF ]}
-    return VariantMetricSet(filtered)
+    d = vmaf_metrics(ref, dist, model=vmaf_model, dry_run=dry_run)
+    if d is None:
+        return VariantMetricSet({Metric.VMAF: 0})
+    return VariantMetricSet({Metric.VMAF : d[Metric.VMAF]})
 
 
-def compute_metrics(a: AnchorTuple, vd: VariantData) -> VariantMetricSet:
-
-    conv = get_anchor_conversion_type(a)
+def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) -> VariantMetricSet:
 
     metrics = None
     if vd.metrics is None:
-        metrics = VariantMetricSet()
-        metrics[Metric.BITRATELOG.key] = 0
-        metrics[Metric.BITRATE.key] = 0
-        metrics[Metric.ENCODETIME.key] = 0
-        metrics[Metric.DECODETIME.key] = 0
+        metrics = { m: None for m in a.get_metrics_set() }
     else:
         metrics = vd.metrics.copy()
 
-    if not os.getenv('DISABLE_HDRMETRICS'):
+    conv = get_anchor_conversion_type(a)
+
+    if not os.getenv('VCC_DISABLE_HDRMETRICS'):
         if conv in (Conversion.NONE, Conversion.HDRCONVERT_8TO10BIT):
-            metrics_sdr = compute_sdr_metrics(a, vd)
+            metrics_sdr = compute_sdr_metrics(a, vd, dry_run=dry_run)
             metrics.update(metrics_sdr)
 
         elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020:
-            # os.setenv("DISABLE_VMAF", "1")
-            metrics_hdr = compute_hdr_metrics_yuv(a, vd)
+            metrics_hdr = compute_hdr_metrics_yuv(a, vd, dry_run=dry_run)
             metrics.update(metrics_hdr)
-            metrics_exr = compute_hdr_metrics_exr(a, vd)
+            metrics_exr = compute_hdr_metrics_exr(a, vd, dry_run=dry_run)
             metrics.update(metrics_exr)
         
-    if not os.getenv('DISABLE_VMAF'):
+    if not bool(os.getenv('VCC_DISABLE_VMAF')):
         if conv in (Conversion.NONE, Conversion.HDRCONVERT_8TO10BIT):
-            metrics_vmaf = compute_vmaf_metrics(a, vd)    
+            metrics_vmaf = compute_vmaf_metrics(a, vd, dry_run=dry_run)    
             metrics.update(metrics_vmaf)
 
-    if a.dry_run:
-        return vd.variant_id, metrics
-
-    bitstream = a.working_dir / vd.bitstream['URI']
-    s = bitstream_size(bitstream, drop_sei=False)
-    metrics[Metric.BITRATE.key] = int(s * 8 / a.duration) * 1e-3
-
     enc = get_encoder(vd.generation['encoder'])
+    bitstream = a.working_dir / vd.bitstream['URI']
+    s = enc.bitstream_size(bitstream)
+    metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
+    
     # parse additional metrics from ENCODER log 
+    metrics[Metric.BITRATELOG] = 0
+    metrics[Metric.ENCODETIME] = 0
     if vd.generation and vd.generation.get('log-file', None):
         enc_log = a.working_dir / vd.generation['log-file']
         if enc_log.exists():
             encoder_metrics = enc.encoder_log_metrics(enc_log)
-            if Metric.BITRATELOG.key in encoder_metrics:
-                metrics[Metric.BITRATELOG.key] = float(encoder_metrics[Metric.BITRATELOG.key])
-            if Metric.ENCODETIME.key in encoder_metrics:
-                metrics[Metric.ENCODETIME.key] = float(encoder_metrics[Metric.ENCODETIME.key])
+            if Metric.BITRATELOG in encoder_metrics:
+                metrics[Metric.BITRATELOG] = float(encoder_metrics[Metric.BITRATELOG])
+            if Metric.ENCODETIME in encoder_metrics:
+                metrics[Metric.ENCODETIME] = float(encoder_metrics[Metric.ENCODETIME])
         else:
             print(f'#\tencoder log not found: {enc_log}')
-    # parse additional metrics from DECODER log 
+
+    # parse additional metrics from DECODER log
+    metrics[Metric.DECODETIME] = 0
     if vd.reconstruction and vd.reconstruction.get('log-file', None):
         dec_log = a.working_dir / vd.reconstruction['log-file']
         if dec_log.exists():
             decoder_metrics = enc.decoder_log_metrics(dec_log)
-            if Metric.DECODETIME.key in decoder_metrics:
-                metrics[Metric.DECODETIME.key] = float(decoder_metrics[Metric.DECODETIME.key])
+            if Metric.DECODETIME in decoder_metrics:
+                metrics[Metric.DECODETIME] = float(decoder_metrics[Metric.DECODETIME])
         else:
             print(f'#\tdecoder log not found: {dec_log}')
+    
+    for k, v in metrics.items():
+        metrics[k] = round(v, digits) if v is not None else 0
 
     return metrics
 
 
-def anchor_metrics_to_csv(a: AnchorTuple, dst: Path = None):
-    fieldnames = None
-    for variant_path, variant_data in iter_variants(a):
-        assert variant_path.exists(), f'{variant_path} not found'
-        assert variant_data.metrics, f'metrics not defined in: {variant_path}'
-        if not fieldnames:
-            fieldnames = ["parameter", *variant_data.metrics.keys()]
+
+def anchor_metrics_csv_rows(a: AnchorTuple) -> List[Dict[str, Any]]:
+    rows = []
+    for qp, vd in load_variants(a):
+        r = {} 
+        r['parameter'] = qp
+        for k, v in vd.metrics.items():
+            r[k.csv_key] = v
+        rows.append(r)
+    return rows
+
+
+def anchor_metrics_to_csv(a: AnchorTuple, save = False, dst: Path = None):
+
+    rows = anchor_metrics_csv_rows(a)
+    if not save:
+        return rows
+
+    fieldnames = ['parameter'] + [m.csv_key for m in a.get_metrics_set()]
 
     if dst is None:
         dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
     if not dst.parent.exists():
         dst.parent.mkdir(parents=True)
-    with open(dst, 'w') as fo:
+    
+    with open(dst, 'w', newline='') as fo:
         writer = csv.DictWriter(fo, fieldnames=fieldnames)
         writer.writeheader()
-        for variant_path, variant_data in iter_variants(a):
-            row = {}
-            for k in fieldnames:
-                if k == "parameter":
-                    variant_data.variant_id
-                    row[k] = variant_data.variant_id
-                else:
-                    row[k] = variant_data.metrics[k]
-            writer.writerow(row)
+        writer.writerows(rows)
 
+    return rows
+
+
+def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
+    r = {}
+    with open(csv_path, 'r', encoding = ENCODING ) as fo:
+        csv_reader = csv.DictReader(fo)
+        for row in csv_reader:
+            qp = None
+            metrics = {}
+            for k, v in row.items():
+                if k == 'parameter':
+                    qp = v
+                else:
+                    m = Metric.from_csv_key(k)
+                    assert m, f'Unknown metric key "{k}" used in json metadata: {k}'
+                    metrics[m] = float(v)
+            r[qp] = metrics
+    return r
+
+
+def load_csv_metrics(a:AnchorTuple, streams:List[VariantData]):
+    """update variant metrics with csv data 
+    """
+    a_csv = a.working_dir.parent / 'Metrics' / (a.working_dir.with_suffix('.csv')).name
+    metrics = anchor_metrics_from_csv(a_csv)
+    for vd in streams:
+        vd.metrics = metrics[vd.variant_qp]
+
+
+@click.group()
+@click.pass_context
+@click.option('--working-dir', envvar='VCC_WORKING_DIR', type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True), help="directory containing bitstreams and pre-computed metrics, can be set with VCC_WORKING_DIR environment variable." )
+@click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
+@click.argument('key', required=True)
+def main(ctx, working_dir:str, s:bool, key:str):
+    """
+    export metrics to csv, if the scope is an encoder config ID, 
+        all anchors for that config will be listed in the csv output. 
+    """
+
+    ctx.ensure_object(dict)
+    ctx.obj['anchor_key'] = key
+
+    working_dir = Path(working_dir)
+
+    parts = key.split('-')
+    if len(parts) != 3:
+        ctx.get_help()
+    
+    bitstreams_dir = working_dir / BITSTREAMS_DIR
+    sequences_dir = working_dir / SEQUENCES_DIR
+    if s:
+        ctx.obj['anchors'] = [AnchorTuple.load(key, bitstreams_dir, sequences_dir)]
+    else:
+        ctx.obj['anchors'] = AnchorTuple.iter_cfg_anchors(key, bitstreams_dir, sequences_dir)
+
+
+
+@main.command()
+@click.pass_context
+@click.option('-a', '--all', is_flag=True, required=False, default=False, help='export a csv file for each individual anchor of the specified encoder config')
+def csv_metrics(ctx, all:bool):
+    """
+    export metrics to csv, if the scope is an encoder config ID, 
+        all anchors for that config will be listed in the csv output. 
+    """
+
+    if len(ctx.obj['anchors']) == 1:
+        a = ctx.obj['anchors'][0]
+        anchor_metrics_to_csv(a, save = True)
+        return
+
+    rows = []
+    metrics = None
+    for a in ctx.obj['anchors']:
+        metrics = a.get_metrics_set()
+        a_rows = anchor_metrics_to_csv(a, save = all)
+        a_rows[0]['sequence'] = a.reference.sequence['Key']
+        rows.append(a_rows)
+    
+    key = ctx.obj['anchor_key']
+    dst = ctx.obj['anchors'][0].working_dir.parent / 'Metrics' / f'{key}.csv'
+    fieldnames = ['sequence', 'parameter'] + [m.csv_key for m in metrics]
+
+    with open(dst, 'w', newline='') as fo:
+        writer = csv.DictWriter(fo, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in rows:
+            writer.writerows(r)
+
+
+
+@main.command()
+@click.pass_context
+def verify_metrics(ctx):
+    """
+    verify that metrics in json and metrics in csv match, usefull for verification purpose
+    """
+    errors = []
+
+    for a in ctx.obj['anchors']:
+        a_csv = a.working_dir.parent / 'Metrics' / (a.working_dir.with_suffix('.csv')).name
+        csv_metrics = anchor_metrics_from_csv(a_csv)
+        for variant_id, qp in a.iter_variants_params():
+            vfp = a.working_dir / f'{variant_id}.json'
+            vd = VariantData.load(vfp, variant_id)
+            for k, v in vd.metrics.items():
+                w = csv_metrics[qp][k]
+                if w != v:
+                    errors.append(f'{variant_id} @ {k.csv_key} : {v} (json) != {w} (csv)')
+
+    if len(errors):
+        for err in errors:
+            click.echo(err)
+    else:
+        click.echo("All metrics match")
+
+
+if __name__ == "__main__":
+    main()

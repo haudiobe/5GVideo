@@ -1,24 +1,28 @@
 from enum import Enum
-import os
 import copy
+import os
 from pathlib import Path
 from typing import List
-from utils import run_process, VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
-from encoders import get_encoding_bitdepth
 from anchor import AnchorTuple
+from encoders import get_encoding_bitdepth
+from sequences import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
+from utils import run_process
 
 class Conversion(Enum):
     NONE = 0
     HDRCONVERT_8TO10BIT = 1
     HDRCONVERT_YCBR420TOEXR2020 = 2
 
+
+def conversion_path(sequence: Path, suffix: str) -> Path:
+    return sequence.parent / 'tmp' / f'{sequence.stem}{suffix}'
+
 def get_anchor_conversion_type(a:AnchorTuple) -> Conversion:
     if a.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
         return Conversion.HDRCONVERT_YCBR420TOEXR2020
-    # compute all metrics on 10 bit assets, even for JM
+    # compute all metrics on 10 bit assets
     if (a.reference.bit_depth == 8):
         return Conversion.HDRCONVERT_8TO10BIT
-    assert get_encoding_bitdepth(a) == a.reference.bit_depth
     return Conversion.NONE
  
 
@@ -74,15 +78,11 @@ def hdrtools_pixel_format(v: VideoSequence) -> int:
     return 6 
 
 
-def conversion_path(sequence: Path, suffix: str) -> Path:
-    return sequence.parent / 'tmp' / f'{sequence.stem}{suffix}'
-
-
 # return a modified VideoSequence obj pointing to the 10bit conversion
 def as_10bit_sequence(yuv_in: VideoSequence) -> VideoSequence:
     yuv_out = copy.deepcopy(yuv_in)
     yuv_out.bit_depth = 10
-    yuv_out.path = conversion_path(yuv_out.path, '10bit.yuv')
+    yuv_out.path = conversion_path(yuv_out.path, '.10bit.yuv')
     return yuv_out
 
 
@@ -207,7 +207,7 @@ def hdr_convert_cmd_YCbCr420toExr2020(yuv_in: VideoSequence, exr_out: VideoSeque
 
 def convert_sequence(conv:Conversion, input: VideoSequence, dry_run=False, log=False):
 
-    HDRCONVERT_TOOL = os.getenv("HDRCONVERT_TOOL", None)
+    HDRCONVERT_TOOL = os.getenv("HDRCONVERT_TOOL", "HDRConvert")
     assert HDRCONVERT_TOOL, "/!\\ missing 'HDRCONVERT_TOOL' environment variable - path to HDRConvert executable"
 
     output, conv_fn = None, None

@@ -1,52 +1,69 @@
-import argparse
-import shutil
+import logging
+
+import json
+import click
 from pathlib import Path
 from datetime import datetime, timezone 
 from enum import Enum
 import math
-import json
 from csv import DictWriter
+from typing import List, Iterable
+from anchor import VariantData, iter_anchors, load_variants
+from metrics import HDR_METRICS, SDR_METRICS
 
-from typing import Any, List, Iterable, Tuple
+def date_str():
+    return datetime.now(timezone.utc).strftime('%d/%m/%y')
 
-from anchor import AnchorTuple, VariantData, reference_sequences_dict, iter_anchors, iter_variants
-from encoders import get_encoder, get_encoding_bitdepth
-from metrics import SDR_METRICS, Metric, compute_metrics, anchor_metrics_to_csv
-from convert import as_10bit_sequence
-
-
-DEBUG_FIRST_VARIANT_ONLY = False 
-DEBUG_SKIP_VMAF = False
-
-
-class AnchorVerificationCmd(Enum):
-    REPORT = -1
+class AnchorVerificationType(Enum):
     BITSTREAM = 1
     DECODER = 2
-
 
 class AnchorVerificationReport:
 
     CSV_FIELDNAMES = ["key", "file", "origdate", "md5", "status", "company", "e-mail", "vdate", "document", "type", "information"]
 
-    @classmethod
-    def from_json_dict(cls, report):
+    def __init__(self, variant_data:VariantData, verification_type:AnchorVerificationType, success:bool, log=List[str], template:dict = None, log_file:Path = None) -> None:
+
+        self.vd = variant_data
+        if template == None:
+            self.report = {
+                "Contact": {
+                    "Company": "",
+                    "name": "",
+                    "e-mail": ""
+                },
+                "date": date_str(),
+                "meeting": "",
+                "input": "",
+                "information": ""
+            }
+        else:
+            self.report = template
         
-        r = cls()
+        if log_file is not None:
+            self.report["information"] = str(log_file)
+        
+        if success:
+            self.report["status"] = "failed"
+        else:
+            self.report["status"] = "successful"
 
-        contact = report["Contact"]
-        r.contact_company = contact.get("Company", None)
-        r.contact_e_mail = contact.get("e-mail", None)
+        if verification_type == AnchorVerificationType.BITSTREAM:
+            self.report["type"] = "bistream"
+        elif verification_type == AnchorVerificationType.DECODER:
+            self.report["type"] = "decoder"
 
-        r.meeting = report.get("meeting", None)
-        r.input_doc = report.get("input", None)
-        r.status = report.get("status", None)
-        r.type = report.get("type", None)
-        r.information = report.get("information", None)
+        self.log = log
+        self.log_file = log_file
 
-        r.verification_date = report.get("date", None)
 
-        return r
+    def save_error_log(self):
+        if len(self.log):
+            return
+        assert self.log_file is not None, "log_file attribute not specified"
+        with open(self.log_file, 'w') as fo:
+            fo.writelines(self.log)
+
 
     @classmethod
     def get_csv_writer(cls, fo, writeheader=True) -> DictWriter:
@@ -55,388 +72,117 @@ class AnchorVerificationReport:
             dw.writeheader()
         return dw
 
-    def to_csv_dict(self, vf: Path, vd: VariantData, template: "AnchorVerificationReport" = None):
-        row = {
-            "key": vd.variant_id,
-            "file": str(vf),
-            "origdate": vd.bitstream["date"],
-            "md5": vd.bitstream["md5"],
-            "status": self.status,
-            "company": self.contact_company,
-            "e-mail": self.contact_e_mail,
-            "vdate": self.verification_date,
-            "document": self.input_doc,
-            "type": self.type,
-            "information": self.information
-        }
-        if template is not None:
-            row["company"] = template.contact_company
-            row["e-mail"] = template.contact_e_mail
-            row["document"] = template.input_doc
-        return row
 
-
-def save_verification_report(vf: Path, vd: VariantData, verification_type: AnchorVerificationCmd, success: bool, log_data: List[str] = None, template: dict = None):
-
-    report = template
-    ts = datetime.now(timezone.utc)
-
-    if report is None:
-        report = {
-            "Contact": {
-                "Company": "",
-                "name": "",
-                "e-mail": ""
-            },
-            "date": ts.strftime('%d/%m/%y'),
-            "meeting": "",
-            "input": ""
+    def to_csv_dict(self):
+        return {
+            "key": self.vd.variant_id,
+            "file": self.vd.bitstream['URI'],
+            "origdate": self.vd.bitstream["date"],
+            "md5": self.vd.bitstream['md5'],
+            "status": self.report["status"],
+            "company": self.report["Contact"]["Company"],
+            "e-mail": self.report["Contact"]["e-mail"],
+            "vdate": self.report["date"],
+            "document": self.report["input"],
+            "type": self.report["type"],
+            "information": self.report["information"]
         }
 
-    if not success:
-        assert (log_data is not None) and (log_data != '')
-        report["status"] = "failed"
-    else:
-        report["status"] = "successful"
 
-    if vd.verification is None:
-        vd.verification = {"Reports": []}
-    elif "Reports" not in vd.verification:
-        vd.verification["Reports"] = []
-    
-    idx = len(vd.verification["Reports"])
-
-    if verification_type == AnchorVerificationCmd.BITSTREAM:
-        report["type"] = "bistream"
-    elif verification_type == AnchorVerificationCmd.DECODER:
-        report["type"] = "decoder"
-
-    if log_data:
-        # save verification report
-        log_file = vf.parent / f'{vd.variant_id}_verification_{idx}_{report["type"]}_{ts.strftime("%d%m%y")}.log'
-        with open(log_file, 'w') as fo:
-            fo.writelines(log_data)
-        report["information"] = str(Path('.') / log_file.name)
-    else:
-        report["information"] = ''
-
-    vd.verification["Reports"].append(report)
-    vd.save_as(vf)
+def save_streams_verification(rl: List[AnchorVerificationReport], dst:Path) -> Iterable[Iterable[str]]:
+    with open(dst) as fo:
+        csvw = AnchorVerificationReport.get_csv_writer(fo)
+        csvw.writerows(rl)
+        for r in rl:
+            r.to_csv_dict()
+            csvw.writerows()
 
 
-def decoder_verification_preflight(a: AnchorTuple):
-    """verifies that:
-        * all variant bitstreams exists
-        * all bitstreams md5 match their json description
-        * has expected metric set
-    """
-    err = None
-    for vf, vd in iter_variants(a):
-        try:
-            _ = a.locate_bitstream(vd, md5_check=True)
-            vd.has_metric_set(SDR_METRICS)
-        except BaseException as e:
-            if err is None:
-                err = []
-            err.append((vf, vd, e))
-    return err
+@click.group()
+@click.pass_context
+@click.option('--template', required=False, default = None, type=click.Path(exists=True, file_okay=True, dir_okay=False))
+@click.argument('downloaded', required=True, type=click.Path(exists=True, file_okay=True, dir_okay=False))
+@click.argument('local', required=True, type=click.Path(exists=True, file_okay=True, dir_okay=False))
+def cli(ctx, template:Path, downloaded:str, local:str):
+    ctx.ensure_object(dict)
 
+    downloaded = Path(downloaded)
+    local = Path(local)
 
-def verify_variant_metrics(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir: Path = None, debug=True, reconstrution_md5=False) -> Tuple[bool, str]:
-    """
-    1. decode into a temporary folder
-    2. compute metrics with freshly decoded data
-    3. compare with values defined in VariantData
-    return a diff in case of missmatch
-    """
-    if (a.reference.bit_depth == 8):
-        assert as_10bit_sequence(a.reference).path.exists()
-    assert vd.metrics is not None, f'no metrics defined for variant {a.anchor_key}/{vd.variant_id}.json'
-
-    log = [f'= {vd.variant_id} | decoder verification =====\n']
-    success = True
-
-    enc_id, enc, dec = a.encoder_id, vd.generation['encoder'], vd.reconstruction['decoder']
-    assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
-    dec = get_encoder(enc_id)
-
-    if tmp_dir is None:
-        tmp = vf.parent.with_suffix('.tmp')
-    else:
-        tmp = tmp_dir / vf.parent.with_suffix('.tmp').name
-    
-    if not a.dry_run:
-        tmp.mkdir(exist_ok=True)
-
-    verify_reconstruction_md5 = reconstrution_md5 and (vd.reconstruction['md5'] != 'unknown')
-    r = dec.decode_variant(a, vd, tmp, md5=reconstrution_md5)
-    print("decoded")
-    
-    # @FIXME: tmp dir no longer specified breaks vertification
-    # _, metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF), dist_dir=tmp)
-    _, metrics_new = compute_metrics(a, vd, vmaf=(not DEBUG_SKIP_VMAF))
-
-    if a.dry_run:
-        return False, "/!\\ dry run"
-
-    if verify_reconstruction_md5:
-        md5_new = r.reconstructed_md5
-        md5_ref = vd.reconstruction['md5']
-        if md5_new != md5_ref:
-            log.append(f'md5 mismatch - expected:{md5_ref} - result: {md5_new}\n')
-            success = False
-        
-    skipped = [Metric.DECODETIME.key, Metric.ENCODETIME.key]
-    for key, expected in vd.metrics.items():
-        if key in skipped:
-            continue
-        found = metrics_new[key]
-        if math.isclose(found, expected, rel_tol=1e-4):
-            success = False
-        log.append(f'{key} - expected:{expected} - result: {found}\n')
-    
-    if not debug:
-        shutil.rmtree(tmp)
-    
-    return success, log
-
-
-def verify_anchor_metrics(a: AnchorTuple, template: dict = None, tmp_dir: Path = None) -> Iterable[Iterable[str]]:
-    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
-    a_errors = []
-    for vf, vd in iter_variants(a):
-        print('-' * 128)
-        assert vd is not None, f'variant data not found:{vf}'
-        success, log_data = verify_variant_metrics(a, vd, vf, tmp_dir=tmp_dir)
-        if not a.dry_run:
-            save_verification_report(vf, vd, AnchorVerificationCmd.DECODER, success, log_data, template=template)
-        if not success:
-            a_errors.append(log_data)
-        if DEBUG_FIRST_VARIANT_ONLY:
-            break
-    if len(a_errors) == 0:
-        anchor_metrics_to_csv(a)
-    print('-' * 128)
-    return a_errors
-
-
-####
-def bitstream_verification_preflight(a: AnchorTuple) -> List[Tuple[Path, Any, str]]:
-    """
-    verifies:
-        * all variant bitstreams exists
-        * all bitstreams md5 match their json description
-    """
-    err:List[Tuple[Path, Any, str]] = []
-    for vf, vd in iter_variants(a):
-        try:
-            _ = a.locate_bitstream(vd, md5_check=True)
-        except KeyboardInterrupt:
-            raise
-        except BaseException as e:
-            if err is None:
-                err = []
-            err.append((vf, vd, e))
-    cfg = a.encoder_cfg
-    if not cfg.exists():
-        if err is None:
-            err = []
-        err.append((cfg, a, 'encoder configuration not found'))
-    return err if len(err) else None
-
-
-def verify_variant_bitstream(a: AnchorTuple, vd: VariantData, vf: Path, tmp_dir: Path = None, debug=True) -> Tuple[bool, str]:
-    """
-    verifies:
-        * re-encoding a new bitstream matches md5 of the existing bitstream
-    """
-    enc_id, enc, dec = a.encoder_id, vd.generation['encoder'], vd.reconstruction['decoder']
-    assert enc_id == dec and enc == dec, f'encoder id mismatch: {(enc_id, enc, dec)}'
-    enc = get_encoder(enc_id)
-
-    if tmp_dir is None:
-        tmp = vf.parent.with_suffix('.tmp')
-    else:
-        tmp = tmp_dir / vf.stem
-
-    if not a.dry_run:
-        tmp.mkdir(exist_ok=True)
-
-    vd_new = enc.encode_variant(a, vd.variant_id, vd.variant_qp, tmp)
-
-    if a.dry_run:
-        return True, None
-
-    md5_new = vd_new.bitstream["md5"]
-    md5_ref = vd.bitstream["md5"]
-    
-    if not debug:
-        shutil.rmtree(tmp)
-
-    if md5_new == md5_ref:
-        return True, None
-    else:
-        return False, f'invalid md5 - expected:{md5_new} - found:{md5_ref}'
-
-
-def verify_anchor_bitstreams(a: AnchorTuple, template: dict = None, tmp_dir: Path = None) -> Iterable[Iterable[str]]:
-    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
-    a_errors = []
-    for vf, vd in iter_variants(a):
-        assert vd is not None, f'variant data not found:{vf}'
-        success, log_data = verify_variant_bitstream(a, vd, vf, tmp_dir=tmp_dir)
-        if not a.dry_run:
-            save_verification_report(vf, vd, AnchorVerificationCmd.BITSTREAM, success, log_data, template=template)
-        if not success:
-            a_errors.append(log_data)
-        if DEBUG_FIRST_VARIANT_ONLY:
-            break
-    print('-' * 128)
-    return a_errors
-
-
-def report_anchor_verifications(a: AnchorTuple, dw: DictWriter, template: dict = None) -> Iterable[Iterable[str]]:
-    assert a.working_dir.is_dir(), f'invalid anchor directory: {a.working_dir}'
     if template is not None:
-        template = AnchorVerificationReport.from_json_dict(template)
-
-    for vf, vd in iter_variants(a):
-        assert vd is not None, f'variant data not found:{vf}'
-        data = vd.verification["Reports"][-1]
-        report = AnchorVerificationReport.from_json_dict(data)
-        row = report.to_csv_dict(vf, vd, template=template)
-        dw.writerow(row)
-
-
-def verify(verification_type: AnchorVerificationCmd, anchors: Iterable[AnchorTuple], dry_run=True, template: dict = None, tmp_dir: Path = None, report_dir: Path = None):
-
-    batch = []
-    preflight_errors = {}
-
-    if verification_type == AnchorVerificationCmd.DECODER:
-        preflight_fn = decoder_verification_preflight
-        verification_fn = verify_anchor_metrics
-
-    elif verification_type == AnchorVerificationCmd.BITSTREAM:
-        preflight_fn = bitstream_verification_preflight
-        verification_fn = verify_anchor_bitstreams
-
-    for a in anchors:
-        err = preflight_fn(a)
-        if err is None:
-            batch.append(a)
-        else:
-            preflight_errors[a] = err
-            print(f'# {a.anchor_key} - error - can not run verification:\n#{err}\n')
-            batch.append(a)
-
-    for a in batch:
-        a.dry_run = dry_run
-        errors = verification_fn(a, template, tmp_dir=tmp_dir)
-        print(f'# {a.anchor_key} verification complete')
-        print(f'# {len(errors)} errors')
-        if len(errors) and not dry_run:
-            for err in errors:
-                print(f'#\t* {err}')
-
-
-def main():
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('type', help='"bitstream" or "decoder"')
-    parser.add_argument('--scenario_dir', required=True, type=str, help='scenario directory')
-    parser.add_argument('-k', '--key', required=False, type=str, default=None, help='an optional anchor key')
-    parser.add_argument('-a', '--anchors-list', required=False, type=str, default='./streams.csv', help='streams.csv file containing the list of anchors for a scenario')
-    parser.add_argument('-s', '--sequences-list', required=False, type=str, default='../reference-sequence.csv', help='sequences.csv file containing the list of reference raw sequences')
-    parser.add_argument('--sequences_dir', required=False, type=str, help='the directory containing the reference sequences')
-    parser.add_argument('--cfg_dir', required=False, type=str, help='directory where encoder configurations can be found, required for bitstream verification')
-    parser.add_argument('--template', required=False, type=str, help='json template for the verification report')
-    parser.add_argument('--tmp_dir', required=False, type=str, help='tmp directory to encode / decode data')
-    parser.add_argument('--dry-run', action='store_true', default=False)
-    
-    args = parser.parse_args()
-    
-    scenario_dir = Path(args.scenario_dir)
-    assert scenario_dir.is_dir(), f'invalid scenario directory {scenario_dir}'
-    
-    anchors_csv = scenario_dir / args.anchors_list
-    assert anchors_csv.exists(), f'anchor list not found {anchors_csv}'
-    
-    references_csv = scenario_dir / Path(args.sequences_list)
-    assert references_csv.exists(), f'reference list not found {references_csv}'
-
-    if args.sequences_dir:
-        assert Path(args.sequences_dir).is_dir(), f'invalid sequence directory {args.sequences_dir}'
-        sequences_dir = Path(args.sequences_dir)
+        with open(template, 'r') as fo:
+            ctx.obj['template'] = json.load(fo)
     else:
-        try:
-            sequences_dir = scenario_dir.parent.parent.parent / 'ReferenceSequences'
-        except BaseException as e:
-            print(e)
-            raise ValueError('invalid sequence directory. check the --sequences_dir option')
-    
-    cfg_dir = scenario_dir / '../CFG'
-    if args.type == "bitstream":
-        verification_type = AnchorVerificationCmd.BITSTREAM
-        if args.cfg_dir is not None:
-            cfg_dir = args.cfg_dir
-            if not cfg_dir.exists():
-                parser.error("`a valid --cfg_dir` is required for bitstream verification")
+        ctx.obj['template'] = None
+    ctx.obj['anchor_streams'] = iter_anchors(downloaded, sequences=None)
+    ctx.obj['test_streams'] = iter_anchors(local, sequences=None)
 
-    elif args.type == "decoder":
-        verification_type = AnchorVerificationCmd.DECODER
 
-    elif args.type == "report":
-        verification_type = AnchorVerificationCmd.REPORT
 
-    else:
-        parser.error("invalid verification type")
-        return
+@cli.command()
+@click.pass_context
+def bitstream(ctx):
+    """
+    verify that bistream md5 are matching
+    """
+    reports = []
+    for a, t in zip(ctx.obj['anchor_streams'], ctx.obj['test_streams']):
+        av = load_variants(a)
+        tv = load_variants(t)
+        for (avf, avd), (_, tvd) in zip(av, tv):
+            print(avf, avd)
+            print(_, tvd)
+            assert avd.variant_id == tvd.variant_id, "variant id missmatch, the 2 streams list are not equal"
+            avd_md5 = avd.bitstream['md5']
+            tvd_md5 = tvd.bitstream['md5']
+            success = avd_md5 == tvd_md5
+            log_msg = f'bitstream md5 - expected:{avd_md5} - result: {tvd_md5}\n)'
+            logf = avf.parent / f'{avd.variant_id}_{date_str()}_decoder_verification.log'
+            r = AnchorVerificationReport(avd, AnchorVerificationType.BITSTREAM, success, [log_msg], ctx.obj['template'], logf)
+            reports.append(r)
+    save_streams_verification(reports, a.working_dir / 'verification.csv')
 
-    tmp_dir = None
-    if args.tmp_dir is not None:
-        tmp_dir = Path(args.tmp_dir)
-        assert tmp_dir.exists(), 'invalid temporary dir'
 
-    keys = None
-    if args.key is not None:
-        keys = [args.key]
+@cli.command()
+@click.pass_context
+def decoder(ctx):
+    """
+    verify that reconstruction md5 and metrics are matching
+    """
+    reports = []
 
-    refs = reference_sequences_dict(references_csv, sequences_dir)
-    anchors = iter_anchors(anchors_csv, refs, scenario_dir, keys=keys)
+    for a, t in zip(ctx.obj['anchor_streams'], ctx.obj['test_streams']):
+        av = load_variants(a)
+        tv = load_variants(t)
+        metrics = a.get_metrics_set()
+        for (avf, avd), (_, tvd) in zip(av, tv):
 
-    print('# PROCESSING', len(anchors), 'anchors', '#' * 32)
-    if len(anchors) == 0:
-        return
+            assert avd.variant_id == tvd.variant_id, "variant id missmatch, the 2 streams list are not equal"
+            log = []
+            success = True
+            
+            if (avd.reconstruction['md5'] == 'unknown') or (avd.reconstruction['md5'] == None):
+                logging.warning('reconstruction md5 not specified')
+            else:
+                avd_md5 = avd.reconstruction['md5']
+                tvd_md5 = tvd.reconstruction['md5']
+                if avd_md5 != tvd_md5:
+                    success = False
+                log.append(f'reconstruction md5 - expected:{avd_md5} - result: {tvd_md5}\n)')
 
-    # verification report template
-    template = None
-    if args.template:
-        with open(args.template, 'r') as fo:
-            template = json.load(fo)
-    
-    if verification_type == AnchorVerificationCmd.REPORT:
-        fp = scenario_dir / 'verification_report.csv'
-        with open(fp, 'w') as fo:
-            print('saving to: ', fp)
-            dw = AnchorVerificationReport.get_csv_writer(fo)
-            for a in anchors:
-                print('writing verifications for: ', a.anchor_key)
-                report_anchor_verifications(a, dw, template)
+            for key, expected in avd.metrics.items():
+                if key in metrics:
+                    found = tvd.metrics[key]
+                    if not math.isclose(found, expected, rel_tol=1e-4):
+                        success = False
+                    log.append(f'{key} - expected:{expected} - result: {found}\n)')
+                logf = avf.parent / f'{avd.variant_id}_{date_str()}_decoder_verification.log'
+                r = AnchorVerificationReport(avd, AnchorVerificationType.DECODER, success, log, ctx.obj['template'], logf)
+                reports.append(r)
+            
+            save_streams_verification(reports, a.working_dir / 'verification.csv')
 
-    else:
-        try:
-            verify(
-                verification_type,
-                anchors, 
-                dry_run=args.dry_run,
-                template=template,
-                tmp_dir=tmp_dir
-            )
-        except KeyboardInterrupt as e:
-            print(e)
-            return
 
 
 if __name__ == "__main__":
-    main()
+    cli()

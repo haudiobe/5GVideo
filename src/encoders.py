@@ -1,10 +1,11 @@
 from abc import ABC, abstractclassmethod
 import os
 import re
-import shlex
 from pathlib import Path
 from typing import Any, List
-from utils import run_process, ChromaFormat, ChromaSubsampling, VideoSequence
+from constants import Metric
+from utils import run_process
+from sequences import ChromaFormat, ChromaSubsampling, VideoSequence
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 import logging as logger
@@ -29,6 +30,7 @@ def get_encoder(id: str) -> 'EncoderBase':
     if id in __encoders__:
         return __encoders__[id]
     try:
+        # try matching when id is a specific version
         m = re.search('^[a-zA-Z]*', id).group()
         if m != '':
             return __encoders__[m]
@@ -40,10 +42,11 @@ def get_encoder(id: str) -> 'EncoderBase':
 class EncoderBase(ABC):
     """the base class for encoders to extend
     """
-
+    
     encoder_id: str = None
     encoder_bin: str = None
     decoder_bin: str = None
+    sei_removal_app: str = None
 
     @abstractclassmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -70,17 +73,20 @@ class EncoderBase(ABC):
         """parse decoder logs / stat files, and return a metrics dict
         """
         print(f'/!\\ decoder {cls} does not implement a custom log parsing')
-        return {}
+        return { Metric.DECODETIME: 0 }
 
     @classmethod
     def encoder_log_metrics(cls, log: Path) -> dict:
         """parse encoder logs / stats, and return a metrics dict
         """
         print('/!\\ custom encoder does not implement log parsing')
-        return {}
+        return {
+            Metric.BITRATELOG: 0,
+            Metric.ENCODETIME: 0
+        }
 
     @classmethod
-    def encode_variant(cls, a: AnchorTuple, variant_id: str, variant_qp: str, dst_dir: Path = None) -> VariantData:
+    def encode_variant(cls, a: AnchorTuple, variant_id: str, variant_qp: str, dst_dir: Path = None, dry_run = False) -> VariantData:
         """
         encode the variant and return VariantData
         """
@@ -89,15 +95,14 @@ class EncoderBase(ABC):
         cfg = a.encoder_cfg
         assert cfg.exists(), f'File not found: {cfg}'
 
-        if dst_dir is not None:
-            assert dst_dir.is_dir(), 'target directory not found'
-        else:
+        if dst_dir is None:
             dst_dir = a.working_dir  # 'anchor working directory not found'
+        dst_dir.mkdir(exist_ok=True, parents=True)
 
         a.working_dir.mkdir(parents=True, exist_ok=True)
         
         ENC = str(a.encoder_id).replace("-", "").replace(".", "_")
-        encoder = get_env(f'{ENC}_ENCODER')
+        encoder = os.getenv(f'{ENC}_ENCODER', cls.encoder_bin)
                 
         bitstream = dst_dir / f'{variant_id}.bin'
         reconstruction = dst_dir / f'{variant_id}.yuv'
@@ -106,7 +111,7 @@ class EncoderBase(ABC):
         cmd = cls.get_encoder_cmd(a, variant_qp, bitstream, reconstruction)
         
         cfg_dir = Path(encoder).parent
-        run_process(logfile, encoder, *cmd, dry_run=a.dry_run, cwd=cfg_dir)
+        run_process(logfile, encoder, *cmd, dry_run=dry_run, cwd=cfg_dir)
         assert a.dry_run or reconstruction.exists(), 'reconstruction not found'
 
         dist = VideoSequence(reconstruction, **a.reference.properties)
@@ -129,28 +134,28 @@ class EncoderBase(ABC):
         return VariantData.new(a, variant_id, variant_qp, logfile, bitstream, rec)
 
     @classmethod
-    def decode_variant(cls, a: AnchorTuple, v: VariantData, dst_dir: Path = None, md5=True) -> ReconstructionMeta:
+    def decode_variant(cls, a: AnchorTuple, v: VariantData, dst_dir: Path = None, md5=True, dry_run=False) -> ReconstructionMeta:
         if dst_dir is not None:
-            assert a.dry_run or dst_dir.is_dir(), f'decoder output directory not found: {dst_dir}'
+            assert dry_run or dst_dir.is_dir(), f'decoder output directory not found: {dst_dir}'
         else:
             dst_dir = a.working_dir
 
         DEC = str(a.encoder_id).replace("-", "").replace(".", "_")
-        decoder = get_env(f'{DEC}_DECODER')
+        decoder = os.getenv(f'{DEC}_DECODER', cls.decoder_bin)
 
         bitstream = a.working_dir / v.bitstream['URI']
         reconstructed = dst_dir / f'{bitstream.stem}.yuv'
         logfile = dst_dir / f'{bitstream.stem}.dec.log'
         
         cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
-        run_process(logfile, decoder, *cmd, dry_run=a.dry_run)
+        run_process(logfile, decoder, *cmd, dry_run=dry_run)
         
         dist = VideoSequence(reconstructed, **a.reference.properties)
         dist.start_frame = 1
         dist.frame_count = a.reference.frame_count
         coded_bit_depth = cls.get_encoding_bitdepth(a.encoder_cfg)
         dist.bit_depth = coded_bit_depth
-        if not a.dry_run:
+        if not dry_run:
             dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
@@ -164,8 +169,24 @@ class EncoderBase(ABC):
                     return int(m[2])
             return None
 
+    @classmethod
+    def bitstream_size(cls, bitstream: Path) -> int:
+        tmp = None
+        tool = cls.sei_removal_app
+        if tool is not None:
+            tmp = bitstream.with_suffix('.tmp')
+            cmd = [tool, '-b', str(bitstream), '-o', str(tmp), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
+            log = bitstream.with_suffix('.seiremoval.log')
+            run_process(log, *cmd, dry_run=False)
+        s = int(os.path.getsize(tmp if tmp is not None else bitstream))
+        if tmp:
+            os.remove(tmp)
+            os.remove(log)
+        return s
+
+
 def get_encoding_bitdepth(a: AnchorTuple) -> int:
-    return __encoders__[a.encoder_id].get_encoding_bitdepth(a.encoder_cfg)
+    return get_encoder(a.encoder_id).get_encoding_bitdepth(a.encoder_cfg)
 
 
 def _to_cli_args(opts: dict):
@@ -179,24 +200,6 @@ def _to_cli_args(opts: dict):
             args += [k, str(v)]
     return args
 
-
-def get_env(var: str):
-    v = os.getenv(var)
-    if v is None:
-        raise Exception(f'environment variable not set {var}')
-    return v
-
-
-def encode_anchor_bitstreams(a: AnchorTuple, decode=False, overwrite=False, dry_run=False):
-    a.dry_run = dry_run
-    enc = get_encoder(a.encoder_id)
-    for variant_id, variant_qp in a.iter_variants_args():
-        p = a.working_dir / f'{variant_id}.json'
-        if p.exists() and not overwrite:
-            print('# skipping', p, ' already exists. use -y to overwrite')
-            continue
-        vd = enc.encode_variant(a, variant_id, variant_qp)
-        vd.save_as(p)
 
 
 def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path = None):
@@ -259,8 +262,9 @@ def reference_encoder_args(a: AnchorTuple, bitstream: Path, reconstruction: Path
 class HM(EncoderBase):
 
     encoder_id = os.getenv("HM_VERSION", "HM")
-    encoder_bin = "HM_ENCODER"
-    decoder_bin = "HM_DECODER"
+    encoder_bin = "TAppEncoderStatic"
+    decoder_bin = "TAppDecoderStatic"
+    sei_removal_app = os.getenv("HM_SEI_REMOVAL_APP", "SEIRemovalAppStatic")
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -282,7 +286,7 @@ class HM(EncoderBase):
         elif (rs.width >= 3840) and (rs.frame_rate <= 60.) :
             level = "5.1"
         else:
-            logger.warn(f'can not determine H265 Level for {a.anchor_key}')
+            logger.warn(f'can not determine H265 Level for {bitstream}')
         if level is not None:
             args += _to_cli_args({"--Level": level})
         return args
@@ -327,12 +331,6 @@ class HM(EncoderBase):
         for i, k in enumerate(keys):
             if k == 'Bitrate':
                 k = 'BitrateLog'
-            elif k.endswith('PSNR'):
-                if k.startswith('YUV'):
-                    continue
-                k = k.replace('-', '')
-            elif k.endswith('Y-MS-SSIM'):
-                k = 'MS_SSIM'
             elif k != 'EncodeTime':
                 continue
             metrics[k] = float(values[i])
@@ -344,8 +342,9 @@ class HM(EncoderBase):
 class SCM(HM):
 
     encoder_id = os.getenv("SCM_VERSION", "SCM")
-    encoder_bin = "SCM_ENCODER"
-    decoder_bin = "SCM_DECODER"
+    encoder_bin = "TAppEncoderStatic"
+    decoder_bin = "TAppDecoderStatic"
+    sei_removal_app = os.getenv("HM_SEI_REMOVAL_APP", "SEIRemovalAppStatic")
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -364,8 +363,9 @@ class SCM(HM):
 class VTM(EncoderBase):
 
     encoder_id = os.getenv("VTM_VERSION", "VTM")
-    encoder_bin = "VTM_ENCODER"
-    decoder_bin = "VTM_DECODER"
+    encoder_bin = "EncoderAppStatic"
+    decoder_bin = "DecoderAppStatic"
+    sei_removal_app = os.getenv("VTM_SEI_REMOVAL_APP", "SEIRemovalAppStatic")
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -387,8 +387,8 @@ class VTM(EncoderBase):
 class JM(EncoderBase):
 
     encoder_id = os.getenv("JM_VERSION", "JM")
-    encoder_bin = "JM_ENCODER"
-    decoder_bin = "JM_DECODER"
+    encoder_bin = "lencod_static"
+    decoder_bin = "ldecod_static"
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -474,7 +474,7 @@ class JM(EncoderBase):
             "-p", f'OutputFile={bitstream}',
             "-p", f'FrameRate={float(a.reference.frame_rate)}',
             "-p", f'StartFrame={a.start_frame -1}',
-            "-p", f'FramesToBeEncoded=2'# {a.frame_count}',
+            "-p", f'FramesToBeEncoded={a.frame_count}',
             "-p", f'SourceWidth={a.reference.width}',
             "-p", f'SourceHeight={a.reference.height}',
             "-p", f'OutputWidth={a.reference.width}',
@@ -522,8 +522,8 @@ class JM(EncoderBase):
 class ETM(EncoderBase):
 
     encoder_id = os.getenv("ETM_VERSION", "ETM")
-    encoder_bin = "ETM_ENCODER"
-    decoder_bin = "ETM_DECODER"
+    encoder_bin = "evca_encoder"
+    decoder_bin = "evca_decoder"
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:

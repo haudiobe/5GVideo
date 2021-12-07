@@ -1,323 +1,231 @@
 
-# Overview
+## Quickstart
 
-1. build / environment
-2. downloading reference content from the [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/)
-3. video conversion step (8 to 10bit, EXR)
-4. creating test data
-5. running verifications
-6. comparing test data to anchors
-
+Get the code & build all docker images:
 ```
-**.py --scenario_dir /data/Bitstreams/{scenario}/{test} -k {anchor} [--dry-run]
-```
-
-the scripts process the target anchor in the target scenario.
-- anchor must be listed in `/data/Bitstreams/{scenario}/{test}/streams.csv`
-- the reference sequence for the anchor must be listed in `/data/Bitstreams/{scenario}/reference-sequences.csv`
-
-_____
-
-# 1. build / environment
-
-## 1.1 Docker image
-
-The sample [Dockerfile](https://docs.docker.com/get-docker/) located in the `docker/` directory, aims at bundling the scripts and dependencies in a portable reference environment: JM, HM, VTM, SCM, VMAF, HDRTools.
-
-**build the docker image**
-
-When building the docker image, software version can be added though docker --build-args. 
-This is usefull to create docker images for scpecific scenarios.
-
-```
-git clone https://github.com/haudiobe/5GVideo.git
+git clone https://github.com/haudiobe/5GVideo
 cd 5GVideo
-
-# building an image for Scenario 3
-docker build \
- --build-arg JM_VERSION=master \
- --build-arg HM_VERSION=tags/HM-16.22 \
- --build-arg SCM_VERSION=tags/HM-16.21+SCM-8.8 \
- --build-arg VTM_VERSION=tags/VTM-11.0 \
- --build-arg HDRTOOLS_VERSION=tags/v0.22 \
- --build-arg VMAF_VERSION=tags/v2.1.1 \
- -t anchortools:Scenario-3-Screen -f ./docker/Dockerfile .
+./build_all.sh
 ```
 
-The 'version' variables *must be valid git tags* used to checkout the source repositories. Note that, in the case of JM, the master branch yields JM v19 source plus build toolchain updates that are not available in the v19 tag.
-
-
-**using the docker image**
-
-to run the scripts in docker container, you can mount your local data directory to `/data`, then specify the script and options.
-
+Set the environment variable pointing to your local data dir and start the docker-compose stack:
 ```
-base_dir=/path/to/host/data
-docker run -it \
-    --mount type=bind,source=$base_dir,target=/data anchortools:latest \
-    python3 ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
+export VCC_WORKING_DIR=/path/to/local/data/5GVideo/
+docker-compose up -d
 ```
 
+At this point you should be able to monitor running tasks at:
+[http://localhost:8888](http://localhost:8888)
 
-## 1.2 running the scripts without docker
-
+to display get the tasks' logs:
 ```
-git clone https://github.com/haudiobe/5GVideo.git
-cd 5GVideo
-```
-
-use a python virtual environment
-```
-python3 -m venv .venv 
-source .venv/bin/activate
+docker-compose logs -f --tail 100 workers
 ```
 
-install the python dependencies:
+now you should be able to run the scripts:
 ```
-pip3 install -r requirements.txt
+docker-compose exec python3 vcc.py --help
 ```
+see the instructions below on scripts usage.
 
-Configure environment variables with your local executable path:
+
+
+take down the docker-compose stack to stop and discard all running and pending tasks:
 ```
-HM_ENCODER=/path/to/HM/bin/TAppEncoderStatic
-HM_DECODER=/path/to/HM/bin/TAppDecoderStatic
-SCM_ENCODER=/path/to/SCM/bin/TAppEncoderStatic
-SCM_DECODER=/path/to/SCM/bin/TAppDecoderStatic
-VTM_ENCODER=/path/to/VVCSoftware_VTM/bin/EncoderAppStatic
-VTM_DECODER=/path/to/VVCSoftware_VTM/bin/DecoderAppStatic
-JM_ENCODER=/path/to/JM/bin/lencod_static
-JM_DECODER=/path/to/JM/bin/ldecod_static
-ETM_ENCODER=/path/to/ETM-master/bin/evca_encoder
-ETM_DECODER=/path/to/ETM-master/bin/evca_decoder
-SEI_REMOVAL_APP=/path/to/HM/bin/SEIRemovalAppStaticd
-HDRMETRICS_TOOL=/path/to/HDRTools/build/bin/HDRMetrics
-HDRCONVERT_TOOL=/path/to/HDRTools/build/bin/HDRConvert
-VMAF_EXEC=/path/to/vmaf/libvmaf/build/tools/vmaf
-```
-
-Make sure these point to the correct software version for each scenario.
-
-_____
-
-
-# 2. Downloading content from the reference server
-
-The `download.py` script downloads content from the public [content server](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/) to the current working directory.
-
-When content is already available in the target directory, it is skipped if the local file size matches the original file.
-
-`--dry-run` doesn't proceed with download, but instead it lists files that need to be downloaded.
-
-**downloading reference sequences needed for a given scenario/codec**
-
-```
-download.py --dl-ref-sequences --scenario_dir /data/Bitstreams/Scenario-3/265-Screen/H265
-```
-
-this download the `reference-sequence.csv` for the target scenario 'Scenario-3-Screen',
-reads that csv, and proceeds with downloading all the reference sequences (the sidecar metadata file, and video sequence).
-
-
-**downloading all variants of a given scenario/codec**
-
-```
-download.py --dl-streams --scenario_dir /data/Bitstreams/Scenario-3-Screen/265
-```
-
-downloads the encoder configuration, and all variant data
-
-_____
-
-
-# 3. Content conversion
-
-For some scenario/metric configurations it is required to pre-process content before running HDR tools (eg. 8 bit ref sequence with 10bit coded bit depth). To generate the required conversions:
-```
-convert.py --scenario_dir /data/Bitstreams/Scenario-3-Screen/265 -k S3-A36-265
-```
-If a conversion already exists (.json + .yuv both exist) it will be used, otherwise a new one will be generated.
-
-
-_____
-
-
-# 4. creating new test data
-
-## 4.1 Introduction
-
-the scripts can be used to generate new data for a given **scenario** / **encoder** :
-- `encoder`: encodes streams based on *Bitstreams/scenario/codec/streams.csv* and *Bitstreams/scenario/reference-sequences.csv*
-- `decoder`: decode stream, compute metrics and update individual streams json metadata
-- `metrics`: compute metrics and update individual streams json metadata
-
-
-## 4.2 anchor bitstreams generation
-
-encode a specific anchor:
-```
-create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265 encoder
-```
-
-encode an entire scenario/codec (sequentialy):
-```
-create.py encoder --scenario_dir /data/Bitstreams/Scenario-3/265
+docker-compose down
 ```
 
 
-## 4.3 metrics generation
 
-### 4.3.1 Preliminaries 
-> After bitstreams generation, and **before running metrics generation**, make sure to run `convert.py`.
+## Downloading reference content
 
-*run decoding and compute metrics* for a specific anchor:
-```
-create.py decoder --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
-```
+reference content is hosted at https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
 
-*compute metrics without decoding step* for a specific anchor, ensuring if it was already properly reconstructed:
 ```
-create.py metrics --scenario_dir /data/Bitstreams/Scenario-3/265 -k S3-A36-265
+python3 ./download.py --help
+python3 ./download.py streams --help
+python3 ./download.py sequences --help
 ```
 
-to process the entire scenario/codec, remove `-k S3-A36-265` from the above commands
-
-
-### 4.3.2 metrics software modules
-
-**PSNR / MS-SSIM**
-
-HDRTools is used for metrics computation. It is built with default flags, in particular `-D JM_PSNR` compilation flag is set.
-
-**Bitstream size / bitrate**
-
-For HM / SCM:
-- the `BitrateLog` metric is parsed from encoder log.
-- the `Bitrate` metric is computed based on the file size and expected to match SEI are removed from bitstream 
-
-**VMAF**
-
-the VMAF executable used is : `libvmaf/build/tools/vmaf`
-the vmaf model used is configured through environment variable, eg.: 
-    `VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform`
-
-when running the docker image, this can be customized easily using docker run's `--env` options, eg:
+download anchor/test bitstreams
 ```
-base_dir=/path/to/host/data
-docker run -it \
-    --mount type=bind,source=$base_dir,target=/data anchortools:latest \
-    --env VMAF_MODEL=/home/deps/vmaf/model/vmaf_v0.6.1.json:enable_transform \
-    python3 ./verify.py decoder --scenario_dir /data/Bitstreams/Scenario-3-Scene -k S3-A36-265
+python3 download.py --pool-size 5 --verbose streams https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv /data/Bitstreams/Scenario-1-FHD/264
 ```
 
-**Decoder/Encoder log metrics**
-
-Decoder / Encoder can implement parsing metrics from logs. Currently, only HM and SCM implement log parsing.
-
-
-## 4.4 encoder/decoder implementation
-
-To implement new encoders, take look at `encoders.py`. 
-You need to subclass the EncoderBase class and decorate your class (@register_encoder).
-Encoder implementation only need to supply an encoder ID, 
-implement the function that generate the shell command lines for encoding/decoding,
-and optionaly parse metrics from the logs or stat files they produce.
-
-_____
+download reference sequences
+```
+python3 download.py --pool-size 5 --verbose sequences /data/Bitstreams/Scenario-1-FHD/reference-sequence.csv /data/ReferenceSequences
+```
 
 
-# 5. content verification
+## Encode, decode, convert, compute metrics
 
-`verify.py` script runs verification for bitstream or metrics, and updates the anchor's vairant bitstream json with a new verification status.
+```
+python3 ./src/vcc.py --help
+```
+
+typical commands to produce test/anchor data:
+
+**Encode** all anchor variants for S1-A01-265:
+```
+python3 ./vcc.py -s S1-A01-265 encode
+```
+
+**Convert** the reference sequence and all anchor variants for S1-A01-265:
+```
+python3 ./vcc.py -s S1-A01-265 --sequence convert
+python3 ./vcc.py -s S1-A01-265 --variants convert
+```
+
+**Compute** metrics for anchor variants for S1-A01-265:
+```
+python3 ./vcc.py -s S1-A01-265 metrics
+```
+
+All logs are stored in S1-A01-265, all dynamic parameters appear explicitely in the logs.
+
+
+## Verifying reference results against local results
+
+```
+Usage: verify.py [OPTIONS] DOWNLOADED LOCAL COMMAND [ARGS]...
+
+Options:
+  --template FILE
+  --help           Show this message and exit.
+
+Commands:
+  bitstream  verify that bistream md5 are matching
+  decoder    verify that reconstruction md5 and metrics are matching
+```
+- *verification.csv* is created in *ANCHOR_STREAMS* parent directory
 
 
 **bitstream verification**
-
-for a specific anchor:
 ```
-verify.py --scenario_dir /data/Bitstreams/Scenario-5/265 -k S5-A04-265 bitstream 
-```
-
-for the entire scenario/codec:
-```
-verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 bitstream 
+export VCC_WORKING_DIR=/path/to
+python3 download.py https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv
+python3 vcc.py decode
+python3 vcc.py convert
+python3 vcc.py metrics
+python3 verify.py /path/to/Bitstreams/Scenario-1-FHD/264/streams.csv /path/to/Verification/Scenario-1-FHD/264/streams.csv bitstreams
 ```
 
 **decoder verification**
-
-for a specific anchor:
 ```
-verify.py --scenario_dir /data/Bitstreams/Scenario-5/265 -k S5-A04-265 decoder
+python3 verify.py Bitstreams/Scenario-1-FHD/264/streams.csv BitstreamsVerification/Scenario-1-FHD/264/streams.csv decoder
 ```
 
-for the entire scenario/codec:
-```
-verify.py --scenario_dir /data/Bitstreams/Scenario-3/265 decoder
-```
-
-
-## bundling verification reports to csv
-
-When running verification steps, the result is stored directly in the anchor json. To export the most recent verification report to csv, use the following commands :
-```
-verify.py report --scenario_dir /data/Bitstreams/Scenario-3/265 \
-    -k S3-A36-265 \
-    --template ./report-template.json
-```
-to generate `/data/Bitstreams/Scenario-3/265/verification_report.csv`.
-
-the `--template` argument specifies a json template for the report (contact info, etc ...).
-
-sample `./report-template.json` :
-```
-{
-    "Contact": {
-        "Company": "Co",
-        "name": "Name",
-        "e-mail": "e@mail.me"
-    },
-    "meeting": "",
-    "input": ""
-}
-```
-_____
-
-
-# 6. comparing test data to anchors
+## Metrics
 
 ```
-python3 compare.py ANCHOR TEST
+python3 metrics.py --help
+python3 metrics.py csv_metrics
 ```
 
-`ANCHOR` and `TEST` can be an anchor directory, or a codec directory with an encoder configuration id, but must both be of the same type. For instance:
 
-to compare *S3-A01-VTM* as test data, with *S3-A01-265* as anchor :
-```
-compare.py /data/Bitstreams/Sequence3-Screen/265/S3-A01-265 /data/Bitstreams/Sequence3-Screen/265/S3-A01-VTM
-```
-prints the result to stdout
+## RD-plot and BD-rate computation
 
-
-to compare encoder configuration *s3-vtm-01.cfg*`* as test, and configuration *s3-hm-01.cfg* as anchor:
 ```
-compare.py /data/Bitstreams/Sequence3-Screen/265@S3-HM-01 /data/Bitstreams/Sequence3-Screen/VTM@S3-VTM-01
+python3 compare.py --help
 ```
 
-the result is found in `/data/Bitstreams/Sequence3-Screen/VTM/Metrics/s3-hm-01.s3-vtm-01.csv`
+
+## running the scripts localy
+
+python 3.8 or later is required (older versions not tested)
+
+It is a standard python pratice to use a virtual envicronment to isolate dependencies:
 
 
-_____
+**Linux/Mac/WSL**
+```
+python3 -m venv ./venv
+source ./venv/bin/activate
+```
+
+**install dependencies** 
+```
+# source ./venv/bin/activate
+
+python -m install -r ./src/requirements.txt
+```
+
+**now we can use the scripts** 
+```
+# source ./venv/bin/activate
+
+python download.py --help
+python vcc.py --help
+python verify.py --help
+```
 
 
-# FAQ
+## Environment variables
 
-> I have my own encoding scripts, how do I feed the results ?
+the scripts assumes the following environment variables:
 
-These scripts should support your workflow providing that:
-- your data follows the reference directory layout
-- you can generate the bitstream json metadata to describe and point to your bistream file.
+- `VCC_WORKING_DIR` 
 
-Your `Bitstreams/scenario/test/streams.csv` must list all the anchors for your test on a given scenario. The anchors/variants should be located in that directory too. Each CSV row describes an anchor, which maps to a subfolder containing its variants. 
+path to a local directory organized following the structure found at [https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/).
 
-The scripts load the bistream json metadata for each variant, providing all the informations to perform post-encoding processing steps.
 
-Take a look at `anchors.py`, it provides the `VariantData` which loads/saves the individual bitstream's json metadata. it also provides functions to iterate the csv files.
+All other environment variables are not required if not used.
+
+when using [JM]()
+- `JM19_0_ENCODER`
+- `JM19_0_DECODER`
+
+absolute path to JM v19.0 encoder/decoder binaries and default configuration files
+
+when using [HM]()
+- `HM16_22_ENCODER` 
+- `HM16_22_DECODER`
+- `HM16_23_ENCODER`
+- `HM16_23_DECODER`
+- `SCM8_8_ENCODER`
+- `SCM8_8_DECODER`
+- `HM16_24_ENCODER`
+- `HM16_24_DECODER`
+- `HM_SEI_REMOVAL_APP`
+
+absolute path to HM encoder and decoder binaries for each version used to generate anchors.
+
+
+
+when using [VTM]()
+- `VTM_13_0_ENCODER`
+- `VTM_13_0_DECODER`
+- `VTM_11_0_ENCODER`
+- `VTM_11_0_DECODER`
+- `SEI_REMOVAL_APP`
+
+absolute path to VTM encoder and decoder binaries for each version used to generate anchors.
+
+
+when using [ETM]()
+- `ETM_7_5_ENCODER`
+- `ETM_7_5_DECODER`
+
+absolute path to ETM encoder and decoder binaries for each version used to generate anchors.
+
+
+when using [HDRMetrics]()s
+- `HDRMETRICS_TOOL`
+- `HDRCONVERT_TOOL`
+absolute path to HDMetrics executable
+
+- `HDRMETRICS_CFG_DIR`
+a directory containing the HDRTools config files found in this repo under **./docker/cfg/HDRTools**
+
+
+
+
+## using docker
+
+### build docker images
+
+build all dependencies once:
+`./build_all.sh`
+
+this includes HDRTools, VMAF, all reference encoder, and produces 
