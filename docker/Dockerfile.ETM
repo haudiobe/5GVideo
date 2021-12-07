@@ -1,0 +1,20 @@
+FROM vcc:base
+WORKDIR /home/deps/ETM
+
+RUN git clone https://github.com/MPEGGroup/MPEG-EVC-ETM.git .
+
+# ETM7.5
+RUN git checkout tags/ETM7.5
+RUN cd ./build/linux && make -j 4
+RUN mkdir ../ETM7.5 && mv ./bin ../ETM7.5/bin
+
+ENV ETM_7_5_ENCODER=/home/deps/ETM7.5/bin/evca_encoder
+ENV ETM_7_5_DECODER=/home/deps/ETM7.5/bin/evca_decoder
+
+# ETM master
+RUN git reset --hard && git checkout master
+RUN cd ./build/linux && make -j 4
+
+ENV ETM_ENCODER=/home/deps/ETM/bin/evca_encoder
+ENV ETM_DECODER=/home/deps/ETM/bin/evca_decoder
+

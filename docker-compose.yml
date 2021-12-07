@@ -19,13 +19,13 @@ services:
     volumes:
       - ${VCC_DATA_DIR}:/data
     environment:
+      - VCC_DISABLE_VMAF=1
       - VCC_WORKING_DIR=/data
       - CELERY_BROKER_URL=redis://queue:6379/0
       - CELERY_RESULT_BACKEND=redis://queue:6379/1
       - JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
       - JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
-    command: [ "/bin/sh", "-c",
-                "pip install debugpy -t /tmp && python3 /tmp/debugpy --listen 0.0.0.0:6900 -m celery -A tasks worker --loglevel=info --concurrency=4 -n worker@%h"]
+    command: [ "/bin/sh", "-c", "pip install debugpy -t /tmp && python3 /tmp/debugpy --listen 0.0.0.0:6900 -m celery -A vcc worker --loglevel=info --concurrency=2 -n worker@%h"]
     ports:
      - 6900:6900
         

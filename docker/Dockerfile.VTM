@@ -1,0 +1,35 @@
+FROM vcc:base
+
+WORKDIR /home/deps/VTM
+
+RUN git clone https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM .
+
+# VTM13.0
+RUN git checkout tags/VTM-13.0
+RUN mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
+RUN mkdir ../VTM13.0 && mv ./bin ../VTM13.0/bin
+
+ENV VTM_13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
+ENV VTM_13_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
+
+
+# VTM11.0
+RUN rm -rf ./build && rm -rf ./bin && git checkout tags/VTM-11.0
+RUN mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
+RUN mkdir ../VTM11.0 &&  mv ./bin ../VTM11.0/bin
+
+ENV VTM_11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
+ENV VTM_11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
+
+
+# VTM master
+RUN ln -s /home/deps/HDRTools/common /home/deps/VTM/source/Lib/HDRLib
+RUN rm -rf ./build && rm -rf ./bin && git checkout master
+RUN mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
+# -DEXTENSION_HDRTOOLS=on \
+    
+
+ENV VTM_ENCODER=/home/deps/VTM/bin/EncoderAppStatic
+ENV VTM_DECODER=/home/deps/VTM/bin/DecoderAppStatic
+
+ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM/bin/SEIRemovalAppStatic
