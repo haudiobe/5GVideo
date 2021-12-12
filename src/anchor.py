@@ -537,7 +537,7 @@ def load_variants(a: AnchorTuple, anchor_dir: Path = None) -> Iterable[Tuple[Pat
     """
     if anchor_dir is None:
         anchor_dir = a.working_dir 
-    assert anchor_dir.is_dir()
+    assert anchor_dir.is_dir(), f'Directory not found: {anchor_dir}'
     for variant_id, qp in a.iter_variants_params():
         vfp = anchor_dir / f'{variant_id}.json'
         data = None
