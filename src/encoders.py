@@ -266,9 +266,31 @@ class HM(EncoderBase):
     decoder_bin = "TAppDecoderStatic"
     sei_removal_app = os.getenv("HM_SEI_REMOVAL_APP", "SEIRemovalAppStatic")
 
+
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
-        return ['-q', str(qp)]
+        
+        qp_args = ['-q', str(qp)]     
+        
+        if a.encoder_cfg_key in [
+             # 6.2.8.3.2
+             'S1-HM-01','S1-HM-02',
+             # 6.3.8.3.2
+             'S2-HM-01','S2-HM-02',
+             # 6.5.8.3.2
+             'S4-HM-02', 
+             # 6.6.8.3.4, 6.6.8.3.6
+             'S5-HM-02', 'S5-SCC-02'] :
+            if a.reference.frame_rate <= 30:
+                qp_args += ['--IntraPeriod=32'] 
+            elif a.reference.frame_rate <= 60:
+                qp_args += ['--IntraPeriod=64']
+        
+        elif a.encoder_cfg_key in ['S3-HM-02', 'S3-SCC-02']:
+            # 6.4.8.3.4, 6.4.8.3.6
+            qp_args += [f'--IntraPeriod={round(a.reference.frame_rate)}'] 
+        return qp_args
+
 
     @classmethod
     def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
@@ -348,6 +370,7 @@ class SCM(HM):
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
+        # see base class function for GOP size 
         return super().get_variant_cmd(a, qp)
 
     @classmethod
@@ -463,7 +486,7 @@ class JM(EncoderBase):
                 qp_args += ['-p', 'IntraPeriod=64']
         elif a.encoder_cfg_key == 'S3-JM-02':
             # 6.4.8.2.3	S3-JM-02: fixed Intra every second
-            qp_args += ['-p', f'IntraPeriod={int(a.reference.frame_rate)}']
+            qp_args += ['-p', f'IntraPeriod={round(a.reference.frame_rate)}']
         return qp_args
 
     @classmethod
