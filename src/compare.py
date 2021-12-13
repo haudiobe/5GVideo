@@ -71,15 +71,10 @@ def rd_metrics(variants: List[VariantData], rate:Metric, dist:Metric) -> Iterabl
             rd.append((r, 0.000))
     return zip(*rd)
 
-def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], rate:Metric, dist:Metric, title="", strict=False, sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], rate:Metric, dist:Metric, title="", sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
-    try:
-        return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, title=title, dist_label=None)
-    except BaseException as e:
-        if strict:
-            raise
-        raise ValueError(f'A:{anchor_metrics} | T:{test_metrics} | Err: {e}')
+    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, title=title, dist_label=None)
 
 
 def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], strict=False, sanitize=True, save_plots=None) -> Iterable[Tuple[str, VariantMetricSet]]:
@@ -94,7 +89,9 @@ def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[
     fig = None
     for m in metrics:
         try:
-            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, rate=Metric.BITRATE, dist=m, strict=strict, sanitize=sanitize, title=None)
+            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, rate=Metric.BITRATE, dist=m, sanitize=sanitize, title=None)
+            plt.ioff()
+            plt.close(fig)
             res[m] = f'{round(bd, 3):.3f}'
             if save_plots:
                 fname = test.working_dir / 'Characterization' / f'{anchor.working_dir.name}.{test.working_dir.name}.{m}.png'.lower()
@@ -133,6 +130,8 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
         for key in metrics:
             try:
                 fig, bd, *_ = compare_anchors_metrics(vref, vtest, rate=Metric.BITRATE, dist=key)
+                plt.ioff()
+                plt.close(fig)
                 arates[key] = f'{round(bd, 3):.3f}'
                 if save_plots:
                     fname = atest.working_dir.parent / 'Characterization' / (f'{aref.working_dir.name}.{atest.working_dir.name}'.upper() + f'{key}.png'.lower())
@@ -262,10 +261,10 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, sanitize=False, title="", dist_label=None
 
     samples, interval = np.linspace(min_int, max_int, num=100, retstep=True)
     [r1, d1] = sort_on_rates(lR1, DIST1)
-    assert strictly_increasing(d1)
+    assert strictly_increasing(d1), f'metric data points are not strictly increasing: {d1}'
 
     [r2, d2] = sort_on_rates(lR2, DIST2)
-    assert strictly_increasing(d2)
+    assert strictly_increasing(d2), f'metric data points are not strictly increasing: {d2}'
 
     v1, v2, avg_diff, fig = None, None, 0, None
     try:
@@ -359,7 +358,7 @@ def main(working_dir:str, s:bool, anchor_key:str, test_key:str):
         anchor = AnchorTuple.load(anchor_key, bitstreams_dir, sequences_dir)
         test = AnchorTuple.load(test_key, bitstreams_dir, sequences_dir)
         metrics = [m for m in anchor.get_metrics_set() if m not in ( Metric.BITRATE, Metric.BITRATELOG )]
-        _ = compare_sequences(anchor, test, metrics, strict=True, save_plots=True)
+        _ = compare_sequences(anchor, test, metrics, strict=False, save_plots=True)
 
     else:
         anchors = AnchorTuple.iter_cfg_anchors(anchor_key, bitstreams_dir, sequences_dir)
@@ -368,7 +367,7 @@ def main(working_dir:str, s:bool, anchor_key:str, test_key:str):
         data = []
         metrics = t.get_metrics_set()
         metrics = [m for m in t.get_metrics_set() if m not in ( Metric.BITRATE, Metric.BITRATELOG )]
-        for (seqid, r) in compare_anchors(anchors, tests, metrics, strict=True, save_plots=False):
+        for (seqid, r) in compare_anchors(anchors, tests, metrics, strict=False, save_plots=False):
             r['reference'] = seqid
             data.append(r)
         outp = t.working_dir.parent  / 'Characterization' / f'{anchor_key}.{test_key}.csv'.lower()
