@@ -1,4 +1,5 @@
 from logging import StreamHandler
+import logging
 import click
 
 from pathlib import Path
@@ -375,8 +376,11 @@ def anchor_metrics_csv_rows(a: AnchorTuple) -> List[Dict[str, Any]]:
     for qp, vd in load_variants(a):
         r = {} 
         r['parameter'] = qp
-        for k, v in vd.metrics.items():
-            r[k.csv_key] = v
+        if vd.metrics is None:
+            logging.error(f'metrics not set on {vd.variant_id}')
+        else:
+            for k, v in vd.metrics.items():
+                r[k.csv_key] = v
         rows.append(r)
     return rows
 
@@ -460,8 +464,7 @@ def main(ctx, working_dir:str, s:bool, key:str):
 
 @main.command()
 @click.pass_context
-@click.option('-a', '--all', is_flag=True, required=False, default=False, help='export a csv file for each individual anchor of the specified encoder config')
-def csv_metrics(ctx, all:bool):
+def csv_metrics(ctx):
     """
     export metrics to csv, if the scope is an encoder config ID, 
         all anchors for that config will be listed in the csv output. 
@@ -476,7 +479,8 @@ def csv_metrics(ctx, all:bool):
     metrics = None
     for a in ctx.obj['anchors']:
         metrics = a.get_metrics_set()
-        a_rows = anchor_metrics_to_csv(a, save = all)
+        # compare.py currently needs individual CSV files 
+        a_rows = anchor_metrics_to_csv(a, save = True)
         a_rows[0]['sequence'] = a.reference.sequence['Key']
         rows.append(a_rows)
     

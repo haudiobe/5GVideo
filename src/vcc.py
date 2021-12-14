@@ -73,6 +73,9 @@ def compute_variant_metrics_task(anchor_key:str, variant_id:str, dry_run=False):
     bitstreams_dir = VCC_WORKING_DIR / BITSTREAMS_DIR
     sequences_dir = VCC_WORKING_DIR / SEQUENCES_DIR
     a = AnchorTuple.load(anchor_key, bitstreams_dir, sequences_dir)
+    sequence_uri = a.reference.sequence.get('URI', None)
+    sequence_key = a.reference.sequence.get('Key', None)
+    assert sequence_uri is not None and Path(sequence_uri).exists, f'Reference sequence {sequence_key} not found in {sequences_dir}'
     vfp = a.working_dir / f'{variant_id}.json'
     vd = VariantData.load(vfp, variant_id)
     vd.metrics = compute_metrics(a, vd, dry_run=dry_run)

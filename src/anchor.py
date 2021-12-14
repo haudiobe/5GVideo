@@ -487,7 +487,7 @@ def reference_sequences_dict(reference_list: Path, ref_sequences_dir: Path, rais
             if not meta.exists():
                 if raises:
                     raise FileNotFoundError(str(meta.resolve()))
-                refs[k] = VideoSequence()
+                refs[k] = VideoSequence(meta, sequence={'Key': k})
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)
             if vs.sequence:
