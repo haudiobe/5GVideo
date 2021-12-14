@@ -109,12 +109,12 @@ class Metric(enum.Enum):
     BITRATELOG = M("bitrate_log", "BitrateLog")
     ENCODETIME = M("encode_time", "EncodeTime")
     DECODETIME = M("decode_time", "DecodeTime")
-    DELTAE100 = M("de100", "DELTAE100")
+    DELTAE100 = M("de100", "DE100")
     WTPSNR = M("wpsnr", "WTPSNR")
-    WTPSNR_Y = M("y_wpsnr", "WTPSNR_Y")
-    WTPSNR_U = M("u_wpsnr", "WTPSNR_U")
-    WTPSNR_V = M("v_wpsnr", "WTPSNR_V")
-    PSNR_L0100 = M("psnr100", "PSNR_L0100")
+    WTPSNR_Y = M("y_wpsnr", "YWPSNR")
+    WTPSNR_U = M("u_wpsnr", "UWPSNR")
+    WTPSNR_V = M("v_wpsnr", "VWPSNR")
+    PSNR_L0100 = M("psnr100", "PSNRL100")
 
 
 # Table 5.5.6-1 Result Format for SDR/HLG
