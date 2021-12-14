@@ -304,7 +304,7 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     d = vmaf_metrics(ref, dist, model=vmaf_model, dry_run=dry_run)
     if d is None:
         return VariantMetricSet({Metric.VMAF: 0})
-    return VariantMetricSet({Metric.VMAF : d[Metric.VMAF]})
+    return VariantMetricSet({Metric.VMAF: d})
 
 
 def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) -> VariantMetricSet:
