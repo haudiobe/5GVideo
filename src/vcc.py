@@ -1,3 +1,4 @@
+from logging import info
 import click
 from celery import Celery
 from celery.utils.log import get_task_logger
@@ -80,16 +81,22 @@ def compute_variant_metrics_task(anchor_key:str, variant_id:str, dry_run=False):
 
 @click.group()
 @click.pass_context
-@click.option('--no-queue', is_flag=True, required=False, default=False, help='process sequentialy, does not queue jobs for workers pool')
-@click.option('--dry-run', is_flag=True, required=False, default=False)
-@click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
+@click.option('--queue/--no-queue', is_flag=True, required=False, default=False, help='Process sequentialy (--no-queue, default), or use distributed processing with a Celery backend (--queue).')
+@click.option('--dry-run', is_flag=True, required=False, default=False, help='Print subprocess commands (eg. encoder, metrics computation, sequence conversion) to stdout instead of actually running them. All other processing steps are be performed as ususal (eg. log parsing, .json or .csv file generation/update) or fail when files they depend upon are missing.')
+@click.option('-s/-c', default=True, help="Signals whether KEY is a sequence IDs (-s, default), or an encoder config ID (-c)")
 @click.argument('key', nargs=1, required=True)
-def main(ctx, no_queue:bool, dry_run:bool, s:bool, key:str):
-    
+def main(ctx, queue:bool, dry_run:bool, s:bool, key:str):
+    """
+    \b
+    to get detailed usage of a specific command, use:
+    \b
+        vcc.py COMMAND help
+    """
     ctx.ensure_object(dict)
+
     ctx.obj['anchor_key'] = key 
     ctx.obj['dry_run'] = dry_run
-    ctx.obj['no_queue'] = no_queue 
+    ctx.obj['queue'] = queue
 
     parts = key.split('-')
     ctx.obj['variant_id'] = None
@@ -98,7 +105,12 @@ def main(ctx, no_queue:bool, dry_run:bool, s:bool, key:str):
         key = '-'.join(parts[0:3])
         ctx.obj['anchor_key'] = key
     elif len(parts) != 3:
-        raise ValueError(f'invalid anchor key {key}')
+        ctx.obj['anchor_key'] = key
+        ctx.obj['anchors'] = []
+        ctx.obj['dry_run'] = True
+        ctx.obj['queue'] = False
+        # raise ValueError(f'invalid anchor key {key}')
+        return
     
     bitstreams_dir = VCC_WORKING_DIR / BITSTREAMS_DIR
     sequences_dir = VCC_WORKING_DIR / SEQUENCES_DIR
@@ -106,10 +118,38 @@ def main(ctx, no_queue:bool, dry_run:bool, s:bool, key:str):
         ctx.obj['anchors'] = [AnchorTuple.load(key, bitstreams_dir, sequences_dir)]
     else:
         ctx.obj['anchors'] = AnchorTuple.iter_cfg_anchors(key, bitstreams_dir, sequences_dir)
-        
 
 
-@main.command()
+
+@main.command(add_help_option=False)
+@click.pass_context
+def help(ctx):
+    """
+    Get detailed help on a command.
+    \b
+    Use --help for global options
+    """
+    key = None
+    try:
+
+        key = ctx.obj['anchor_key']
+        cmd = main.commands[key]
+        h = cmd.get_help(click.Context(cmd, parent=ctx.parent, info_name=key))
+        click.echo(h)
+        return
+    
+    except KeyError:
+        pass
+
+    h = main.get_help(ctx)
+    click.echo(h)
+    if key != 'help':
+        msg = f"\nhelp error: no such command '{key}'\n"
+        click.echo(msg)
+    
+
+
+@main.command(add_help_option=False)
 @click.pass_context
 def decode(ctx):
     """
@@ -119,19 +159,19 @@ def decode(ctx):
     """
     dry_run = ctx.obj['dry_run']
     variant_id = ctx.obj['variant_id']
-    no_queue = ctx.obj['no_queue']
+    queue = ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
         for _, vd in load_variants(a):
             if (variant_id is not None) and (variant_id != vd.variant_id):
                     continue
-            if no_queue:
+            if not queue:
                 get_encoder(a.encoder_id).decode_variant(a, vd, dry_run = dry_run)
             else:
                 decode_variant_task.delay(a.working_dir.name, vd.variant_id, dry_run = dry_run)
 
 
-@main.command()
+@main.command(add_help_option=False)
 @click.pass_context
 def encode(ctx):
     """
@@ -148,13 +188,13 @@ def encode(ctx):
     """
     dry_run = ctx.obj['dry_run']
     variant_id = ctx.obj['variant_id']
-    no_queue = ctx.obj['no_queue']
+    queue = ctx.obj['queue']
     
     for a in ctx.obj['anchors']:
         for vid, vqp in a.iter_variants_params():
             if (variant_id is not None) and (variant_id != vid):
                     continue
-            if no_queue:
+            if not queue:
                 vd = get_encoder(a.encoder_id).encode_variant(a, vid, vqp, dry_run = dry_run, dst_dir = a.working_dir)
                 vd.save_as(a.working_dir / f'{variant_id}.json')
 
@@ -162,7 +202,7 @@ def encode(ctx):
                 encode_variant_task.delay(a.working_dir.name, vid, vqp, dry_run = dry_run)
 
 
-@main.command()
+@main.command(add_help_option=False)
 @click.pass_context
 @click.option('--reconstructions/--reference',  is_flag=True, required=False, default=True, help="process reference sequences (default), or reconstructed")
 def convert(ctx, reconstructions):
@@ -174,7 +214,7 @@ def convert(ctx, reconstructions):
     """
     dry_run = ctx.obj['dry_run']
     variant_id = ctx.obj['variant_id']
-    no_queue = ctx.obj['no_queue']
+    queue = ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
         conv = get_anchor_conversion_type(a)
@@ -187,26 +227,26 @@ def convert(ctx, reconstructions):
                 if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                     continue
                 vs = a.working_dir / f'{vd.variant_id}.yuv.json'
-                if no_queue:
+                if not queue:
                     convert_sequence(conv, VideoSequence.from_sidecar_metadata(str(vs)), dry_run=dry_run)
                 else:
                     convert_sequence_task.delay(conv.value, str(vs), dry_run=dry_run)
         else:
-            if no_queue:
+            if not queue:
                 convert_sequence(conv, a.reference, dry_run=dry_run)
             else:
                 convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
 
 
 
-@main.command()
+@main.command(add_help_option=False)
 @click.pass_context
 def metrics(ctx):
-    
+
     anchor_key = ctx.obj['anchor_key']
     dry_run = ctx.obj['dry_run']
     variant_id = ctx.obj['variant_id']
-    no_queue = ctx.obj['no_queue']
+    queue = ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
         match_found = variant_id is None
@@ -217,7 +257,7 @@ def metrics(ctx):
             if ((variant_id is not None) and (variant_id != vd.variant_id)):
                 continue
             match_found = True
-            if no_queue:
+            if not queue:
                 vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
                 vd.save_as(vfp)
             else:
