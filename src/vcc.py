@@ -94,24 +94,21 @@ def main(ctx, queue:bool, dry_run:bool, s:bool, key:str):
     """
     ctx.ensure_object(dict)
 
-    ctx.obj['anchor_key'] = key 
-    ctx.obj['dry_run'] = dry_run
-    ctx.obj['queue'] = queue
-
     parts = key.split('-')
     ctx.obj['variant_id'] = None
     if len(parts) == 4:
         ctx.obj['variant_id'] = '-'.join(parts)
         key = '-'.join(parts[0:3])
-        ctx.obj['anchor_key'] = key
     elif len(parts) != 3:
-        ctx.obj['anchor_key'] = key
+        ctx.obj['command_key'] = key
         ctx.obj['anchors'] = []
         ctx.obj['dry_run'] = True
         ctx.obj['queue'] = False
-        # raise ValueError(f'invalid anchor key {key}')
         return
-    
+
+    ctx.obj['dry_run'] = dry_run
+    ctx.obj['queue'] = queue
+
     bitstreams_dir = VCC_WORKING_DIR / BITSTREAMS_DIR
     sequences_dir = VCC_WORKING_DIR / SEQUENCES_DIR
     if s:
@@ -132,7 +129,7 @@ def help(ctx):
     key = None
     try:
 
-        key = ctx.obj['anchor_key']
+        key = ctx.obj['command_key']
         cmd = main.commands[key]
         h = cmd.get_help(click.Context(cmd, parent=ctx.parent, info_name=key))
         click.echo(h)
@@ -168,7 +165,7 @@ def decode(ctx):
             if not queue:
                 get_encoder(a.encoder_id).decode_variant(a, vd, dry_run = dry_run)
             else:
-                decode_variant_task.delay(a.working_dir.name, vd.variant_id, dry_run = dry_run)
+                decode_variant_task.delay(a.anchor_key, vd.variant_id, dry_run = dry_run)
 
 
 @main.command(add_help_option=False)
@@ -199,7 +196,7 @@ def encode(ctx):
                 vd.save_as(a.working_dir / f'{variant_id}.json')
 
             else:
-                encode_variant_task.delay(a.working_dir.name, vid, vqp, dry_run = dry_run)
+                encode_variant_task.delay(a.anchor_key, vid, vqp, dry_run = dry_run)
 
 
 @main.command(add_help_option=False)
@@ -243,7 +240,6 @@ def convert(ctx, reconstructions):
 @click.pass_context
 def metrics(ctx):
 
-    anchor_key = ctx.obj['anchor_key']
     dry_run = ctx.obj['dry_run']
     variant_id = ctx.obj['variant_id']
     queue = ctx.obj['queue']
@@ -261,7 +257,7 @@ def metrics(ctx):
                 vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
                 vd.save_as(vfp)
             else:
-                compute_variant_metrics_task.delay(anchor_key, vd.variant_id, dry_run=dry_run)
+                compute_variant_metrics_task.delay(a.anchor_key, vd.variant_id, dry_run=dry_run)
         assert match_found, f'{variant_id} not found'
 
 
