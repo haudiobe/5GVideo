@@ -352,7 +352,7 @@ class AnchorTuple:
         anchors = iter_anchors(streams_csv, sequences=sequences, keys=[anchor_key])
         if len(anchors) > 1:
             raise Exception(f'duplicate anchor key {anchor_key} found in streams.csv')
-        elif len(anchor_key) == 0:
+        elif len(anchors) == 0:
             raise Exception(f'{anchor_key} not found in {streams_csv}')
         return anchors[0]
 
