@@ -21,7 +21,7 @@ ENV SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
 COPY --from=vcc:jm /home/deps/JM/bin /home/deps/JM/bin
 COPY --from=vcc:jm /home/deps/JM/cfg /home/deps/JM/bin
 ENV JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
-ENV JM19_0_ENCODER=/home/deps/JM/bin/ldecod_static
+ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
 
 # VTM
 COPY --from=vcc:vtm /home/deps/VTM13.0/bin /home/deps/VTM13.0/bin

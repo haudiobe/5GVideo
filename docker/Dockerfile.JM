@@ -15,6 +15,9 @@ RUN mkdir -p ./build && cd ./build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make -j 4
 
+ENV JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
+ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
+
 ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
 ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
 
