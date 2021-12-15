@@ -349,7 +349,7 @@ class AnchorTuple:
         scenario_dir = codec_dir.parent
         sequences = reference_sequences_dict(scenario_dir / 'reference-sequence.csv', sequences_dir) if sequences_dir is not None else None
         streams_csv = codec_dir / 'streams.csv'
-        anchors = iter_anchors( streams_csv / 'streams.csv', sequences=sequences, keys=[anchor_key])
+        anchors = iter_anchors(streams_csv, sequences=sequences, keys=[anchor_key])
         if len(anchors) > 1:
             raise Exception(f'duplicate anchor key {anchor_key} found in streams.csv')
         elif len(anchor_key) == 0:
@@ -361,7 +361,7 @@ class AnchorTuple:
         test_dir = encoder_cfg_path(config_key, bitstreams_dir).parent.parent
         sequences = reference_sequences_dict(test_dir.parent / 'reference-sequence.csv', sequences_dir) if sequences_dir is not None else None
         streams_csv = test_dir / 'streams.csv'
-        anchors = iter_anchors(test_dir / 'streams.csv', sequences=sequences, cfg_keys=[config_key])
+        anchors = iter_anchors(streams_csv, sequences=sequences, cfg_keys=[config_key])
         if len(anchors) == 0:
             raise Exception(f'No anchor/test found for encoder config {config_key} in {streams_csv}')
         return anchors
