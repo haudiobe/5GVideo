@@ -233,7 +233,7 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
         vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
         dist = as_10bit_sequence(vs)
-        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {ref.path}'
+        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
 
     else:
         raise ValueError("Invalid conversion type for SDR metrics")
@@ -435,8 +435,8 @@ def load_csv_metrics(a:AnchorTuple, streams:List[VariantData]):
 
 @click.group()
 @click.pass_context
-@click.option('--working-dir', envvar='VCC_WORKING_DIR', type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True), help="directory containing bitstreams and pre-computed metrics, can be set with VCC_WORKING_DIR environment variable." )
-@click.option('-s/-c', required=True, default=True, show_default=True, help="signals whether KEY is a sequence IDs, or an encoder config ID")
+@click.option('--working-dir', envvar='VCC_WORKING_DIR', required=True, type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True), help="Directory containing bitstreams and pre-computed metrics, alternatively this can be set with VCC_WORKING_DIR environment variable." )
+@click.option('-s/-c', required=True, default=True, show_default=True, help="Signals whether KEY is a sequence IDs, or an encoder config ID")
 @click.argument('key', required=True)
 def main(ctx, working_dir:str, s:bool, key:str):
     """
