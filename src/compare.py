@@ -338,7 +338,8 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
 @click.option('-s/-c', required=True, default=True, help="specifies if anchor/test are: sequence IDs or encoder configs IDs")
 @click.argument('anchor_key', required=True)
 @click.argument('test_key', required=True)
-def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str):
+@click.argument('metric_keys', nargs=-1, required=False)
+def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metric_keys:Tuple[str]):
     """
     The script expects data to follow data organization as found in: https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
     \b
@@ -375,10 +376,21 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str):
         Metric.DECODETIME 
     )
 
+    metrics = []
+
+    for k in metric_keys:
+        m = Metric.from_csv_key(k)
+        if m == None:
+            click.echo(f'Aborting - invalid metric key specified: "{k}"')
+            return
+        else:
+            metrics.append(m)
+    
     if s:
         anchor = AnchorTuple.load(anchor_key, bitstreams_dir, sequences_dir)
         test = AnchorTuple.load(test_key, bitstreams_dir, sequences_dir)
-        metrics = [m for m in anchor.get_metrics_set() if m not in METRIC_BLACKLIST]
+        if len(metrics) == 0:
+            metrics = [m for m in anchor.get_metrics_set() if m not in METRIC_BLACKLIST]
         _ = compare_sequences(anchor, test, metrics, save_plots=True)
 
     else:
@@ -386,8 +398,8 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str):
         tests = AnchorTuple.iter_cfg_anchors(test_key, bitstreams_dir, sequences_dir)
         t = tests[-1]
         data = []
-        metrics = t.get_metrics_set()
-        metrics = [m for m in t.get_metrics_set() if m not in METRIC_BLACKLIST]
+        if len(metrics) == 0:
+            metrics = [m for m in t.get_metrics_set() if m not in METRIC_BLACKLIST]
         for (seqid, r) in compare_anchors(anchors, tests, metrics, save_plots=True):
             r['reference'] = seqid
             data.append(r)

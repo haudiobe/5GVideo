@@ -80,6 +80,11 @@ def download_reference_sequence(ref_meta_location:str, remote_sequences_dir:str,
     local_sequence_metadata = Path(local_sequences_dir / ref_meta_location)
     url = urljoin(remote_sequences_dir, ref_meta_location)
     download_file(url, local_sequence_metadata, overwrite=overwrite, dry_run=dry_run, queue=False)
+    if dry_run:
+        return
+    elif preflight and not local_sequence_metadata.exists():
+        # logging.warning(f'Failed to download {local_sequence_metadata}')
+        return
     
     with open(local_sequence_metadata, 'r') as reader:
         data = json.load(reader)
@@ -89,9 +94,8 @@ def download_reference_sequence(ref_meta_location:str, remote_sequences_dir:str,
             return
         stem = '/'.join(url.path.split('/')[-2:])
         raw_video_local = local_sequences_dir / stem
-        d = (dry_run or preflight)
-        o = (overwrite if not d else False)
-        download_file(url.geturl(), raw_video_local, overwrite=o, dry_run=d, queue=True)
+        o = (False if (dry_run or preflight) else overwrite)
+        download_file(url.geturl(), raw_video_local, overwrite=o, dry_run=preflight, queue=True)
 
 
 @click.group()
@@ -102,13 +106,12 @@ def download_reference_sequence(ref_meta_location:str, remote_sequences_dir:str,
 @click.option('--verbose/--quiet', is_flag=True, required=False, default=True)
 def cli(ctx, dry_run:bool, overwrite:bool, pool_size:int, verbose:bool):
     """
-    download.py sequences ./reference-sequences.csv ../../ReferenceSequences
     \b
-    download.py sequences --help
+    download.py sequences ./reference-sequences.csv ../../ReferenceSequences
+    
     \b
     download.py streams http://hosted/streams.csv .
-    \b
-    download.py streams --help
+    
     """
     lvl = logging.INFO if verbose else logging.WARN
     logging.basicConfig(format='%(message)s', level=lvl)

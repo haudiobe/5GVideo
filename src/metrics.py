@@ -1,4 +1,3 @@
-from logging import StreamHandler
 import logging
 import click
 
@@ -16,7 +15,7 @@ from conversion import Conversion, as_10bit_sequence, as_exr2020_sequence, get_a
 from constants import BITSTREAMS_DIR, SEQUENCES_DIR, ENCODING
 
 from sequences import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
-from utils import run_process
+from utils import run_process, from_enum
 
 class VideoFormatException(BaseException):
     pass
@@ -418,8 +417,9 @@ def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
                     qp = v
                 else:
                     m = Metric.from_csv_key(k)
-                    assert m, f'Unknown metric key "{k}" used in json metadata: {k}'
+                    assert m, f'Unknown metric key "{k}" used in csv metadata: {k}'
                     metrics[m] = float(v)
+                    
             r[qp] = metrics
     return r
 
@@ -520,6 +520,20 @@ def verify_metrics(ctx):
             click.echo(err)
     else:
         click.echo("All metrics match")
+
+@main.command()
+@click.pass_context
+def import_csv_metrics(ctx):
+    for a in ctx.obj['anchors']:
+        a_csv = a.working_dir.parent / 'Metrics' / (a.working_dir.with_suffix('.csv')).name
+        csv_metrics = anchor_metrics_from_csv(a_csv)
+        for variant_id, _ in a.iter_variants_params():
+            vfp = a.working_dir / f'{variant_id}.json'
+            vd = VariantData.load(vfp, variant_id)
+            m = csv_metrics[variant_id]
+            vd.metrics = m
+            vd.save_as(a.working_dir / f'{variant_id}.json')
+
 
 
 if __name__ == "__main__":

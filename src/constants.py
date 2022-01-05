@@ -1,8 +1,5 @@
 import enum
 from pathlib import Path
-
-from utils import from_enum
-
 ENCODING = 'utf-8-sig'
 
 BITSTREAMS_DIR = 'Bitstreams'
