@@ -348,7 +348,7 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metri
     Comparing anchors using sequence IDs S1-A01-264 to S1-T01-ETM:
 
     \b
-        compare.py -s S1-A01-264 S1-T01-ETM
+        compare.py -s S1-A01-264 S1-T01-ETM psnr y_psnr ms_ssim vmaf
   
     \b
         plots will be found in S1/ETM/S1-T01-ETM/Characterization
@@ -357,10 +357,15 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metri
     Comparing encoder config 'S1-JM-01' to 'S1-HM-01':
 
     \b
-        compare.py -p -c S1-JM-01 S1-HM-01
+        compare.py -p -c S1-JM-01 S1-HM-01 psnr y_psnr ms_ssim vmaf
     
     \b
         results will be found in S1/265/Characterization
+    
+    \b
+    METRIC_KEYS are optional, when not specified, then all available metrics are processed.
+    Supported metric keys: psnr, y_psnr, u_psnr, v_psnr, ms_ssim, de100, wpsnr, y_wpsnr, u_wpsnr, v_wpsnr, psnr100, vmaf, encode_time, decode_time
+
     
     """
     root_dir = Path(working_dir)

@@ -148,7 +148,7 @@ class VariantData:
                         assert m, f'Unknown metric key "{k}" used in json metadata: {k}'
                         metrics[m] = float(v)
                     except BaseException as e:
-                        logging.error(e)
+                        logging.error(f'{fp.name} - {e}')
 
                 if (Metric.PSNR_Y in metrics) and (Metric.PSNR not in metrics):
                     metrics.compute_avg_psnr()

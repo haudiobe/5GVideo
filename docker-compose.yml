@@ -21,6 +21,8 @@ services:
     environment:
       # - VCC_DISABLE_HDRMETRICS=1
       # - VCC_DISABLE_VMAF=1
+      - VMAF_MODEL=/home/deps/vmaf/model/vmaf_v0.6.1.json
+      - JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
       - VCC_WORKING_DIR=/data
       - CELERY_BROKER_URL=redis://queue:6379/0
       - CELERY_RESULT_BACKEND=redis://queue:6379/1
