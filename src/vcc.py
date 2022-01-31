@@ -163,7 +163,7 @@ def decode(ctx):
 
     for a in ctx.obj['anchors']:
         for _, vd in load_variants(a):
-            if (variant_id is not None) and (variant_id != vd.variant_id):
+            if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                     continue
             if not queue:
                 get_encoder(a.encoder_id).decode_variant(a, vd, dry_run = dry_run)
@@ -217,25 +217,27 @@ def convert(ctx, reconstructions):
     queue = ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
+        assert a.reference != None
         conv = get_anchor_conversion_type(a)
 
-        if conv == Conversion.NONE:
-            return
-        
         if reconstructions:
+            if conv[1] == Conversion.NONE:
+                return
             for _, vd in load_variants(a):
                 if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                     continue
                 vs = a.working_dir / f'{vd.variant_id}.yuv.json'
                 if not queue:
-                    convert_sequence(conv, VideoSequence.from_sidecar_metadata(str(vs)), dry_run=dry_run)
+                    convert_sequence(conv[1], VideoSequence.from_sidecar_metadata(str(vs)), dry_run=dry_run)
                 else:
-                    convert_sequence_task.delay(conv.value, str(vs), dry_run=dry_run)
+                    convert_sequence_task.delay(conv[1].value, str(vs), dry_run=dry_run)
         else:
+            if conv[0] == Conversion.NONE:
+                return
             if not queue:
-                convert_sequence(conv, a.reference, dry_run=dry_run)
+                convert_sequence(conv[0], a.reference, dry_run=dry_run)
             else:
-                convert_sequence_task.delay(conv.value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
+                convert_sequence_task.delay(conv[0].value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
 
 
 
@@ -250,11 +252,11 @@ def metrics(ctx):
     for a in ctx.obj['anchors']:
         match_found = variant_id is None
         for _, vd in load_variants(a, a.working_dir):
-            vfp = a.working_dir / f'{vd.variant_id}.json'
             if vd is None:
                 continue
             if ((variant_id is not None) and (variant_id != vd.variant_id)):
                 continue
+            vfp = a.working_dir / f'{vd.variant_id}.json'
             match_found = True
             if not queue:
                 vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
