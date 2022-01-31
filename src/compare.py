@@ -242,7 +242,7 @@ def strictly_increasing(samples):
     return True
 
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="Quality", bitrate_label = "Bit rate in bit/s", sanitize=False, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="Quality", bitrate_label = "Bit rate in kbit/s", sanitize=False, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
         [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
