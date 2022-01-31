@@ -15,7 +15,7 @@ ENV SCM8_8_DECODER=/home/deps/SCM8.8/bin/TAppDecoderStatic
 ENV HM16_24_ENCODER=/home/deps/HM16.24/bin/TAppEncoderStatic
 ENV HM16_24_DECODER=/home/deps/HM16.24/bin/TAppDecoderStatic
 
-ENV SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
+ENV HM_SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
 
 # JM
 COPY --from=vcc:jm /home/deps/JM/bin /home/deps/JM/bin
@@ -25,17 +25,20 @@ ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
 
 # VTM
 COPY --from=vcc:vtm /home/deps/VTM13.0/bin /home/deps/VTM13.0/bin
-ENV VTM_13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
-ENV VTM_13_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
+ENV VTM13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
+ENV VTM13_0_DECODER=/home/deps/VTM13.0/bin/
 
 COPY --from=vcc:vtm /home/deps/VTM11.0/bin /home/deps/VTM11.0/bin
-ENV VTM_11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
-ENV VTM_11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
+ENV VTM11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
+ENV VTM11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
+
+ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM13.0/bin/SEIRemovalAppStatic
+
 
 # ETM
 COPY --from=vcc:etm /home/deps/ETM7.5/bin /home/deps/ETM7.5/bin
-ENV ETM_7_5_ENCODER=/home/deps/ETM7.5/bin/EncoderAppStatic
-ENV ETM_7_5_DECODER=/home/deps/ETM7.5/bin/DecoderAppStatic
+ENV ETM7_5_ENCODER=/home/deps/ETM7.5/bin/EncoderAppStatic
+ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/DecoderAppStatic
 
 # scripts
 WORKDIR /home/5GVideo

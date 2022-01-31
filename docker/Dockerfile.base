@@ -45,4 +45,4 @@ RUN cd ./vmaf && make
 ENV VMAF_EXE=/home/deps/vmaf/libvmaf/build/tools/vmafossexec
 ENV PATH=/home/deps/vmaf:/home/deps/vmaf/libvmaf/build/tools:$PATH
 
-ENV VMAF_MODEL=path=/home/deps/vmaf/model/vmaf_v0.6.1.json
+ENV VMAF_MODEL=/home/deps/vmaf/model/vmaf_v0.6.1.json

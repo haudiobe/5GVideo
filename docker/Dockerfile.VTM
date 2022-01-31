@@ -9,8 +9,8 @@ RUN git checkout tags/VTM-13.0
 RUN mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
 RUN mkdir ../VTM13.0 && mv ./bin ../VTM13.0/bin
 
-ENV VTM_13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
-ENV VTM_13_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
+ENV VTM13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
+ENV VTM13_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
 
 
 # VTM11.0
@@ -18,8 +18,8 @@ RUN rm -rf ./build && rm -rf ./bin && git checkout tags/VTM-11.0
 RUN mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j 4
 RUN mkdir ../VTM11.0 &&  mv ./bin ../VTM11.0/bin
 
-ENV VTM_11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
-ENV VTM_11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
+ENV VTM11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
+ENV VTM11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
 
 
 # VTM master
