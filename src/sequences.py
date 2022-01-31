@@ -2,6 +2,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
+import os
 from utils import from_enum
 
 
@@ -45,7 +46,6 @@ class VideoInfo:
         self.bit_depth = properties.get('bitDepth', None)
         self.frame_rate = properties.get('frameRate', None)
         self.start_frame = properties.get('startFrame', None)
-        self.frame_count = properties.get('frameCount', None)
         self.packing = properties.get('packing', None)
         self.scan = properties.get('scan', None)
         self.colour_primaries = from_enum(ColorPrimaries, properties.get('colourPrimaries', None))
@@ -59,6 +59,19 @@ class VideoInfo:
         self.hdr_master_display = properties.get('HDRmasterDisplay', None)
         self.hdr_max_cll = properties.get('HDRmaxCLL', None)
         self.hdr_max_fall = properties.get('HDRmaxFALL', None)
+
+        self._frame_count = properties.get('frameCount', None)
+
+
+    @property
+    def frame_count(self):
+        if bool(int(os.getenv('VCC_TEST_SINGLE_FRAME', None))):
+            return 1
+        return self._frame_count
+
+    @frame_count.setter
+    def frame_count(self, count):
+        self._frame_count = count
 
     @property
     def interleaved(self):
