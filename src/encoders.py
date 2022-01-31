@@ -112,7 +112,7 @@ class EncoderBase(ABC):
         
         cfg_dir = Path(encoder).parent
         run_process(logfile, encoder, *cmd, dry_run=dry_run, cwd=cfg_dir)
-        assert a.dry_run or reconstruction.exists(), 'reconstruction not found'
+        assert dry_run or reconstruction.exists(), 'reconstruction not found'
 
         dist = VideoSequence(reconstruction, **a.reference.properties)
         dist.start_frame = 1
@@ -143,11 +143,15 @@ class EncoderBase(ABC):
         DEC = str(a.encoder_id).replace("-", "").replace(".", "_")
         decoder = os.getenv(f'{DEC}_DECODER', cls.decoder_bin)
 
-        bitstream = a.working_dir / v.bitstream['URI']
+        bitstream = a.working_dir / f'{v.variant_id}.bin'
+        bitstream_no_sei, _ = cls.remove_sei(bitstream)
+        if bitstream_no_sei is None:
+            bitstream_no_sei = bitstream
+
         reconstructed = dst_dir / f'{bitstream.stem}.yuv'
         logfile = dst_dir / f'{bitstream.stem}.dec.log'
         
-        cmd = cls.get_decoder_cmd(bitstream, reconstructed, a)
+        cmd = cls.get_decoder_cmd(bitstream_no_sei, reconstructed, a)
         run_process(logfile, decoder, *cmd, dry_run=dry_run)
         
         dist = VideoSequence(reconstructed, **a.reference.properties)
@@ -159,6 +163,7 @@ class EncoderBase(ABC):
             dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
+
     @classmethod
     def get_encoding_bitdepth(cls, cfg:Path) -> int:
         # defaulty implem based on HM
@@ -169,17 +174,27 @@ class EncoderBase(ABC):
                     return int(m[2])
             return None
 
+
+    @classmethod
+    def remove_sei(cls, bitstream_in:Path, bitstream_out:Path=None):
+        tool = cls.sei_removal_app
+        if tool is None:
+            return None
+        if bitstream_out is None:
+            bitstream_out = bitstream_in.with_suffix('.seirm.bin')
+        cmd = [tool, '-b', str(bitstream_in), '-o', str(bitstream_out), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
+        log = bitstream_out.with_suffix('._seirm.log')
+        run_process(log, *cmd, dry_run=False)
+        return bitstream_out, log
+
+
     @classmethod
     def bitstream_size(cls, bitstream: Path) -> int:
-        tmp = None
-        tool = cls.sei_removal_app
-        if tool is not None:
-            tmp = bitstream.with_suffix('.tmp')
-            cmd = [tool, '-b', str(bitstream), '-o', str(tmp), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
-            log = bitstream.with_suffix('.seiremoval.log')
-            run_process(log, *cmd, dry_run=False)
-        s = int(os.path.getsize(tmp if tmp is not None else bitstream))
-        if tmp:
+        tmp, log = cls.remove_sei(bitstream)
+        if tmp is None:
+            s = int(os.path.getsize(bitstream))
+        else:
+            s = int(os.path.getsize(tmp))
             os.remove(tmp)
             os.remove(log)
         return s
@@ -403,7 +418,7 @@ class VTM(EncoderBase):
 
     @classmethod
     def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
-        return _to_cli_args({"-b": f'{bitstream}', "-o": f'{reconstructed}'})
+        return _to_cli_args({"-b": f'{bitstream}', "-o": f'{reconstructed}', "--SEIDecodedPictureHash": "0" })
 
 
 @register_encoder
@@ -412,6 +427,11 @@ class JM(EncoderBase):
     encoder_id = os.getenv("JM_VERSION", "JM")
     encoder_bin = "lencod_static"
     decoder_bin = "ldecod_static"
+
+    @classmethod
+    def get_encoding_bitdepth(cls, cfg:Path) -> int:
+        # all configs have ProfileIDC = 100  (S3, S4, S5)
+        return 8
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -481,12 +501,13 @@ class JM(EncoderBase):
         if a.encoder_cfg_key in  ['S1-JM-01', 'S4-JM-02', 'S5-JM-02']:
             # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
             if a.reference.frame_rate <= 30:
-                qp_args += ['-p', 'IntraPeriod=32'] 
+                qp_args += ['-p', 'IntraPeriod=32', '-p', 'IDRPeriod=32'] 
             elif a.reference.frame_rate <= 60:
-                qp_args += ['-p', 'IntraPeriod=64']
+                qp_args += ['-p', 'IntraPeriod=64', '-p', 'IDRPeriod=64']
         elif a.encoder_cfg_key == 'S3-JM-02':
             # 6.4.8.2.3	S3-JM-02: fixed Intra every second
-            qp_args += ['-p', f'IntraPeriod={round(a.reference.frame_rate)}']
+            gs = round(a.reference.frame_rate)
+            qp_args += ['-p', f'IntraPeriod={gs}', '-p', f'IDRPeriod={gs}']
         return qp_args
 
     @classmethod
