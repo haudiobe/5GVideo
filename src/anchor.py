@@ -324,8 +324,8 @@ class AnchorTuple:
     @classmethod
     def locate(cls, anchor_key: str, parent_dir: Path) -> Path:
         arr = anchor_key.split('-')
-        if len(arr) == 3:
-            scenario, _, enc = arr
+        if len(arr) >= 3:
+            scenario, _, enc = arr[:3]
             if scenario == 'S1':
                 scenario = 'Scenario-1-FHD'
             elif scenario == 'S2':
@@ -336,9 +336,11 @@ class AnchorTuple:
                 scenario = 'Scenario-4-Sharing'
             elif scenario == 'S5':
                 scenario = 'Scenario-5-Gaming'
+            elif scenario == 'S6':
+                scenario = 'Scenario-6-8K'
             else:
-                return parent_dir / anchor_key
-            return parent_dir / f'{scenario}/{enc}/{anchor_key}/'
+                raise ValueError(f'unknown scenario: {scenario}')
+            return parent_dir / scenario / enc / '-'.join(arr[:3])
         else:
             return parent_dir / anchor_key
 
@@ -347,13 +349,12 @@ class AnchorTuple:
         anchor_dir = cls.locate(anchor_key, bitstreams_dir)
         codec_dir = anchor_dir.parent
         scenario_dir = codec_dir.parent
+        logging.critical(f'anchor_dir: {anchor_dir}')
+        logging.critical(f'codec_dir: {codec_dir}')
+        logging.critical(f'scenario_dir: {scenario_dir}')
         sequences = reference_sequences_dict(scenario_dir / 'reference-sequence.csv', sequences_dir) if sequences_dir is not None else None
-        streams_csv = codec_dir / 'streams.csv'
-        anchors = iter_anchors(streams_csv, sequences=sequences, keys=[anchor_key])
-        if len(anchors) > 1:
-            raise Exception(f'duplicate anchor key {anchor_key} found in streams.csv')
-        elif len(anchors) == 0:
-            raise Exception(f'{anchor_key} not found in {streams_csv}')
+        anchors = iter_anchors( codec_dir / 'streams.csv', sequences=sequences, keys=[anchor_key])
+        assert len(anchors) == 1, f'Error: found {len(anchors)} anchors for key {anchor_key} in {codec_dir / "streams.csv"}'
         return anchors[0]
 
     @classmethod
