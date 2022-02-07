@@ -65,7 +65,7 @@ class VideoInfo:
 
     @property
     def frame_count(self):
-        if bool(int(os.getenv('VCC_TEST_SINGLE_FRAME', None))):
+        if bool(int(os.getenv('VCC_TEST_SINGLE_FRAME', 0))):
             return 1
         return self._frame_count
 
