@@ -137,6 +137,11 @@ class VariantData:
                 err = bitstream["key"]
                 logging.info(f"Invalid bitstream[key] {err} instead of {variant_id} found in {fp}")
             bitstream["key"] = variant_id
+            uri = bitstream.get('URI', None)
+            if uri is None or uri.startswith('https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/'):
+                binfp = fp.with_suffix('.bin')
+                bitstream['URI'] = binfp
+                logging.warning(f'replacing bitstream URI: {uri}\n\twith => {binfp}')
 
             d = data.get("Metrics", None)
             metrics = None
@@ -195,6 +200,9 @@ class VariantData:
         return VariantData(generation, bitstream, reconstruction.to_dict(), None, None, contact, copyright)
 
     def dumps(self):
+        if 'URI' in self._bitstream:
+            self._bitstream['URI'] = str(self._bitstream['URI'])
+
         metrics = None if self._metrics is None else { k.json_key: v for k, v in self._metrics.items() }
         data = {
             "Bitstream": self._bitstream,
@@ -459,7 +467,7 @@ class AnchorTuple:
         return fp
 
     def get_metrics_set(self):
-        assert self.reference is not None, 'AnchorTuple was loaded but reference sequence was either not specified, see AnchorTuple.load()'
+        assert self.reference.transfer_characteristics is not None, 'AnchorTuple was loaded but reference sequence was either not specified, see AnchorTuple.load()'
         if self.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
             return HDR_METRICS
         else:
