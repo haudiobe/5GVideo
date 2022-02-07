@@ -61,8 +61,15 @@ def parse_metrics(log):
     
     assert raw_data is not None, f'failed to parse {p}'
     
-    def parse_hex(indices, values): 
-        return [struct.unpack('!d', bytes.fromhex(values[i]))[0] for i in indices]
+    def parse_hex(indices, values):
+        r = []
+        for i in indices:
+            try:
+                b = bytes.fromhex(values[i][:16])
+                r.append(struct.unpack('!d', b)[0])
+            except BaseException as e:
+                raise Exception(f'{values[i]}  => {e}')
+        return r
     
     def parse_frames(indices, frames):
         return [[f[0], *parse_hex(indices, f)] for f in frames]
@@ -130,7 +137,9 @@ def hdrtools_input(v: VideoSequence, ref=True, file_header=0):
 
 def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, log: Path, dry_run=False, cfg: Path = None) -> dict:
     if os.getenv('DISABLE_HDRMETRICS'):
-        return
+        return {}
+    else:
+        assert cfg is not None and Path(cfg).exists(), 'HDRTools config file not found'
     
     input0 = hdrtools_input(ref, ref=True)
     input1 = hdrtools_input(dist, ref=False)
@@ -215,27 +224,19 @@ def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0
 
 
 def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
+
     hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetrics_PSNR_MSSSIM.cfg'
-    dist = None
+
+    ref = a.reference
+    dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
     conv = get_anchor_conversion_type(a)
-    if conv == Conversion.NONE:
-        ref = a.reference
-        dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        """
-        dist.path =  a.working_dir / f'{vd.variant_id}.yuv'
-        dist.dump(a.working_dir / f'{vd.variant_id}.yuv.json')
-        """
-        assert ref.bit_depth == dist.bit_depth
-
-    elif conv == Conversion.HDRCONVERT_8TO10BIT:
-        ref = as_10bit_sequence(a.reference)
+    if conv[0] == Conversion.HDRCONVERT_8TO10BIT:
+        ref = as_10bit_sequence(ref)
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
-        vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        dist = as_10bit_sequence(vs)
+    if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
+        dist = as_10bit_sequence(dist)
         assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
-
-    else:
-        raise ValueError("Invalid conversion type for SDR metrics")
+    assert ref.bit_depth == dist.bit_depth
     
     log = dist.path.with_suffix('.metrics.log')
     d = hdrtools_metrics(ref, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg ) 
@@ -279,26 +280,23 @@ def compute_hdr_metrics_exr(a: AnchorTuple, vd: VariantData, dry_run=False):
     d = hdrtools_metrics(ref, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg) 
     result = {
         Metric.PSNR_L0100: d["PSNR_L0100"],
+        Metric.DELTAE100: d["PSNR_DE0100"]
     }
     return VariantMetricSet(result)
 
 
 def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
+
+    ref = a.reference
+    dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
     conv = get_anchor_conversion_type(a)
-    if conv == Conversion.NONE:
-        ref = a.reference
-        dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        assert ref.bit_depth == dist.bit_depth
-
-    elif conv == Conversion.HDRCONVERT_8TO10BIT:
-        ref = as_10bit_sequence(a.reference)
+    if conv[0] == Conversion.HDRCONVERT_8TO10BIT:
+        ref = as_10bit_sequence(ref)
         assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
-        vs = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
-        dist = as_10bit_sequence(vs)
-        assert ref.bit_depth == dist.bit_depth
-
-    else:
-        raise ValueError("Invalid conversion type for vmaf")
+    if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
+        dist = as_10bit_sequence(dist)
+        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
+    assert ref.bit_depth == dist.bit_depth
 
     vmaf_model = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
     d = vmaf_metrics(ref, dist, model=vmaf_model, dry_run=dry_run)
@@ -318,23 +316,25 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
     conv = get_anchor_conversion_type(a)
 
     if not os.getenv('VCC_DISABLE_HDRMETRICS'):
-        if conv in (Conversion.NONE, Conversion.HDRCONVERT_8TO10BIT):
-            metrics_sdr = compute_sdr_metrics(a, vd, dry_run=dry_run)
-            metrics.update(metrics_sdr)
 
-        elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020:
+        if a.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
             metrics_hdr = compute_hdr_metrics_yuv(a, vd, dry_run=dry_run)
             metrics.update(metrics_hdr)
             metrics_exr = compute_hdr_metrics_exr(a, vd, dry_run=dry_run)
             metrics.update(metrics_exr)
+        else:
+            metrics_sdr = compute_sdr_metrics(a, vd, dry_run=dry_run)
+            metrics.update(metrics_sdr)
         
     if not bool(os.getenv('VCC_DISABLE_VMAF')):
-        if conv in (Conversion.NONE, Conversion.HDRCONVERT_8TO10BIT):
-            metrics_vmaf = compute_vmaf_metrics(a, vd, dry_run=dry_run)    
+
+        if a.reference.transfer_characteristics != TransferFunction.BT2020_PQ:
+            metrics_vmaf = compute_vmaf_metrics(a, vd, dry_run=dry_run)
             metrics.update(metrics_vmaf)
 
+
     enc = get_encoder(vd.generation['encoder'])
-    bitstream = a.working_dir / vd.bitstream['URI']
+    bitstream = Path(vd.bitstream['URI'])
     s = enc.bitstream_size(bitstream)
     metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
     
