@@ -357,9 +357,6 @@ class AnchorTuple:
         anchor_dir = cls.locate(anchor_key, bitstreams_dir)
         codec_dir = anchor_dir.parent
         scenario_dir = codec_dir.parent
-        logging.critical(f'anchor_dir: {anchor_dir}')
-        logging.critical(f'codec_dir: {codec_dir}')
-        logging.critical(f'scenario_dir: {scenario_dir}')
         sequences = reference_sequences_dict(scenario_dir / 'reference-sequence.csv', sequences_dir) if sequences_dir is not None else None
         anchors = iter_anchors( codec_dir / 'streams.csv', sequences=sequences, keys=[anchor_key])
         assert len(anchors) == 1, f'Error: found {len(anchors)} anchors for key {anchor_key} in {codec_dir / "streams.csv"}'

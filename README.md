@@ -1,231 +1,166 @@
+# Overview
 
-## Quickstart
+these script can be used to produce / verify specific encoders and scenarios according to TR26.955.
 
-Get the code & build all docker images:
+
+## installation
+
 ```
-git clone https://github.com/haudiobe/5GVideo
+git clone https://github.com/haudiobe/5GVideo 
 cd 5GVideo
-./build_all.sh
 ```
 
-Set the environment variable pointing to your local data dir and start the docker-compose stack:
-```
-export VCC_WORKING_DIR=/path/to/local/data/5GVideo/
-docker-compose up -d
-```
+Please use a [python virtual environment](https://docs.python.org/3/library/venv.html#creating-virtual-environments) to install dependencies and run the scripts. 
 
-At this point you should be able to monitor running tasks at:
-[http://localhost:8888](http://localhost:8888)
-
-to display get the tasks' logs:
+install dependencies:
 ```
-docker-compose logs -f --tail 100 workers
-```
-
-now you should be able to run the scripts:
-```
-docker-compose exec python3 vcc.py --help
-```
-see the instructions below on scripts usage.
-
-
-
-take down the docker-compose stack to stop and discard all running and pending tasks:
-```
-docker-compose down
+pip3 install -r src/requirements.txt
 ```
 
 
+### working directory
 
-## Downloading reference content
+the scripts are meant to work on local directory containing data organized as in: https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
 
-reference content is hosted at https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
+the `VCC_WORKING_DIR` environment variable is used to configure the location of that directory.
 
+
+### download content from server
+
+downloads anchor bitstreams, metrics, encoder config, and reference sequence list for a given scenario:
 ```
-python3 ./download.py --help
-python3 ./download.py streams --help
-python3 ./download.py sequences --help
-```
-
-download anchor/test bitstreams
-```
-python3 download.py --pool-size 5 --verbose streams https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv /data/Bitstreams/Scenario-1-FHD/264
+python3 download.py streams https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv $VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/264
 ```
 
-download reference sequences
+downloads anchor reference sequences for a csv list:
 ```
-python3 download.py --pool-size 5 --verbose sequences /data/Bitstreams/Scenario-1-FHD/reference-sequence.csv /data/ReferenceSequences
+python3 src/download.py sequences https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv $VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/reference-sequences.csv
 ```
 
 
-## Encode, decode, convert, compute metrics
+### characterization
+
+The characterization script is meant to compare test data to an anchor. For instance, to compare sequences `JM` and `HM` for `Scenario-1-FHD`, you should have the following data:
 
 ```
-python3 ./src/vcc.py --help
-```
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/264/S1-A01-264.json
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/264/streams.csv
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/264/Metrics/S1-A01-264.csv
+[...]
 
-typical commands to produce test/anchor data:
-
-**Encode** all anchor variants for S1-A01-265:
-```
-python3 ./vcc.py -s S1-A01-265 encode
-```
-
-**Convert** the reference sequence and all anchor variants for S1-A01-265:
-```
-python3 ./vcc.py -s S1-A01-265 --sequence convert
-python3 ./vcc.py -s S1-A01-265 --variants convert
-```
-
-**Compute** metrics for anchor variants for S1-A01-265:
-```
-python3 ./vcc.py -s S1-A01-265 metrics
-```
-
-All logs are stored in S1-A01-265, all dynamic parameters appear explicitely in the logs.
-
-
-## Verifying reference results against local results
-
-```
-Usage: verify.py [OPTIONS] DOWNLOADED LOCAL COMMAND [ARGS]...
-
-Options:
-  --template FILE
-  --help           Show this message and exit.
-
-Commands:
-  bitstream  verify that bistream md5 are matching
-  decoder    verify that reconstruction md5 and metrics are matching
-```
-- *verification.csv* is created in *ANCHOR_STREAMS* parent directory
-
-
-**bitstream verification**
-```
-export VCC_WORKING_DIR=/path/to
-python3 download.py https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/Bitstreams/Scenario-1-FHD/264/streams.csv
-python3 vcc.py decode
-python3 vcc.py convert
-python3 vcc.py metrics
-python3 verify.py /path/to/Bitstreams/Scenario-1-FHD/264/streams.csv /path/to/Verification/Scenario-1-FHD/264/streams.csv bitstreams
-```
-
-**decoder verification**
-```
-python3 verify.py Bitstreams/Scenario-1-FHD/264/streams.csv BitstreamsVerification/Scenario-1-FHD/264/streams.csv decoder
-```
-
-## Metrics
-
-```
-python3 metrics.py --help
-python3 metrics.py csv_metrics
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/264/S1-A01-265.json
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/265/streams.csv
+$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/265/Metrics/S1-A01-264.csv
+[...]
 ```
 
 
-## RD-plot and BD-rate computation
-
+To compare and plot psnr, y_psnr, and ms_ssim for these 2 sequences: 
 ```
-python3 compare.py --help
-```
-
-
-## running the scripts localy
-
-python 3.8 or later is required (older versions not tested)
-
-It is a standard python pratice to use a virtual envicronment to isolate dependencies:
-
-
-**Linux/Mac/WSL**
-```
-python3 -m venv ./venv
-source ./venv/bin/activate
+python3 src/compare.py --plot -s S1-A01-264 S1-A01-265 psnr y_psnr ms_ssim
 ```
 
-**install dependencies** 
+Assuming you have all the anchors for encoder config S1-JM-01 and S1-HM-01, you can process them at once:
 ```
-# source ./venv/bin/activate
-
-python -m install -r ./src/requirements.txt
-```
-
-**now we can use the scripts** 
-```
-# source ./venv/bin/activate
-
-python download.py --help
-python vcc.py --help
-python verify.py --help
+python3 src/compare.py --plot -c S1-JM-01 S1-HM-01 psnr y_psnr ms_ssim
 ```
 
 
-## Environment variables
+### encode, decode, convert, metrics commands
 
-the scripts assumes the following environment variables:
+`src/vcc.py` provides the commands to encode, decode, and compute metrics.
 
-- `VCC_WORKING_DIR` 
+All the commands described below support processing a single anchor ...
+```
+python3 src/metrics.py -s S1-A11-265 csv-metrics
+```
 
-path to a local directory organized following the structure found at [https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/](https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/).
+a single sequence (QP) ...
+```
+python3 src/metrics.py -s S1-A11-265-22 csv-metrics
+```
 
-
-All other environment variables are not required if not used.
-
-when using [JM]()
-- `JM19_0_ENCODER`
-- `JM19_0_DECODER`
-
-absolute path to JM v19.0 encoder/decoder binaries and default configuration files
-
-when using [HM]()
-- `HM16_22_ENCODER` 
-- `HM16_22_DECODER`
-- `HM16_23_ENCODER`
-- `HM16_23_DECODER`
-- `SCM8_8_ENCODER`
-- `SCM8_8_DECODER`
-- `HM16_24_ENCODER`
-- `HM16_24_DECODER`
-- `HM_SEI_REMOVAL_APP`
-
-absolute path to HM encoder and decoder binaries for each version used to generate anchors.
+or batch all anchors oif a given encoder config.
+```
+python3 src/metrics.py -c S1-HM-02 csv-metrics
+```
 
 
+#### encode
 
-when using [VTM]()
-- `VTM_13_0_ENCODER`
-- `VTM_13_0_DECODER`
-- `VTM_11_0_ENCODER`
-- `VTM_11_0_DECODER`
-- `SEI_REMOVAL_APP`
+```
+JM19_0_ENCODER=~/deps/JM/bin/lencod_static
 
-absolute path to VTM encoder and decoder binaries for each version used to generate anchors.
+python3 src/vcc.py -s S1-A01-264 encode [--dry-run]
+```
 
-
-when using [ETM]()
-- `ETM_7_5_ENCODER`
-- `ETM_7_5_DECODER`
-
-absolute path to ETM encoder and decoder binaries for each version used to generate anchors.
+*dry-run* mode prints the command used to encode to stdout but doesn't run it, but it does compute existing bitstream md5.
 
 
-when using [HDRMetrics]()s
-- `HDRMETRICS_TOOL`
-- `HDRCONVERT_TOOL`
-absolute path to HDMetrics executable
+#### decode
 
-- `HDRMETRICS_CFG_DIR`
-a directory containing the HDRTools config files found in this repo under **./docker/cfg/HDRTools**
+```
+JM19_0_DECODER=~/deps/JM/bin/ldecod_static
+
+python3 src/vcc.py -s S1-A01-264 decode [--dry-run]
+```
+
+*dry-run* mode prints the command used to encode to stdout but doesn't run it, but it does compute existing reconstruction md5.
 
 
+#### convert
+
+```
+HDRCONVERT_TOOL=~/deps/HDRTools/build/bin/HDRConvert
+
+python3 src/vcc.py -s S1-A11-265 decode --reference [--dry-run]
+python3 src/vcc.py -s S1-A11-265 decode --reconstructions [--dry-run]
+```
+
+Performs conversion needed before metrics computation using HDRTools' HDRConvert.
+
+when --reconstructions is specfied, the reconstructions for all QPs are processed. 
+when --reference is specified, the reference sequence is processed instead.
+
+Conversion is either be 8 to 10 bit YUV, or YUV to EXR. When conversion is not needed for a given sequence, the script does nothing.
+
+The converted sequences are stored in a tmp subfolder for each anchor.
+
+*dry-run* mode prints the command used to convert to stdout but doesn't run it.
 
 
-## using docker
+#### metrics
 
-### build docker images
+```
+HDRMETRICS_TOOL=~/deps/HDRTools/build/bin/HDRMetrics
+VMAF_EXE=~/deps/vmaf/libvmaf/build/tools/vmafossexec
+VMAF_MODEL=/home/deps/vmaf/model/vmaf_v0.6.1.json
 
-build all dependencies once:
-`./build_all.sh`
+python3 src/vcc.py -s S1-A11-265 metrics [--dry-run]
+```
 
-this includes HDRTools, VMAF, all reference encoder, and produces 
+Computes metrics for the given sequence. This step also computes bitrate after removing SEI.
+
+HDRTOOLS or VMAF can be enabled / disabled through environment variables.
+```
+DISABLE_HDRMETRICS=1
+DISABLE_VMAF=1
+```
+
+This step is meant to run after successfull `conversion`. It uses the converted sequence where appropriate, and raise an error if it doesn't exist.
+
+*dry-run* mode doesn't run HDRTools or vmaf, but it does parse existing logs.
+
+
+##### metrics csv export
+
+Metrics are saved on the anchors JSON file. A script can be used to export them to .csv:
+
+```
+python3 src/metrics.py -s S1-A11-265 csv-metrics
+python3 src/metrics.py -c S1-HM-02 csv-metrics
+```
+
+For the above commands, the metrics `.csv` files can then be found in: `$VCC_WORKING_DIR/Bitstreams/Scenario-1-FHD/265/Metrics`
