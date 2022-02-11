@@ -1,0 +1,54 @@
+# Dockerfile.base: gcc7~10, HDRMetrics, VMAF, scripts
+FROM vcc:base
+
+# HM & SCM
+COPY --from=vcc:hm /home/deps/HM16.22/bin/ /home/deps/HM16.22/bin/
+COPY --from=vcc:hm /home/deps/HM16.23/bin/ /home/deps/HM16.23/bin/
+COPY --from=vcc:hm /home/deps/HM16.24/bin/ /home/deps/HM16.24/bin/
+COPY --from=vcc:hm /home/deps/SCM8.8/bin/ /home/deps/SCM8.8/bin/
+ENV HM16_22_ENCODER=/home/deps/HM16.22/bin/TAppEncoderStatic
+ENV HM16_22_DECODER=/home/deps/HM16.22/bin/TAppDecoderStatic
+ENV HM16_23_ENCODER=/home/deps/HM16.23/bin/TAppEncoderStatic
+ENV HM16_23_DECODER=/home/deps/HM16.23/bin/TAppDecoderStatic
+ENV SCM8_8_ENCODER=/home/deps/SCM8.8/bin/TAppEncoderStatic
+ENV SCM8_8_DECODER=/home/deps/SCM8.8/bin/TAppDecoderStatic
+ENV HM16_24_ENCODER=/home/deps/HM16.24/bin/TAppEncoderStatic
+ENV HM16_24_DECODER=/home/deps/HM16.24/bin/TAppDecoderStatic
+
+ENV HM_SEI_REMOVAL_APP=/home/deps/HM16.23/bin/SEIRemovalAppStatic
+
+# JM
+COPY --from=vcc:jm /home/deps/JM/bin /home/deps/JM/bin
+COPY --from=vcc:jm /home/deps/JM/cfg /home/deps/JM/bin
+ENV JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
+ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
+
+# VTM
+COPY --from=vcc:vtm /home/deps/VTM13.0/bin /home/deps/VTM13.0/bin
+ENV VTM13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
+ENV VTM13_0_DECODER=/home/deps/VTM13.0/bin/
+
+COPY --from=vcc:vtm /home/deps/VTM11.0/bin /home/deps/VTM11.0/bin
+ENV VTM11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
+ENV VTM11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
+
+ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM13.0/bin/SEIRemovalAppStatic
+
+
+# ETM
+COPY --from=vcc:etm /home/deps/ETM7.5/bin /home/deps/ETM7.5/bin
+ENV ETM7_5_ENCODER=/home/deps/ETM7.5/bin/EncoderAppStatic
+ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/DecoderAppStatic
+
+# scripts
+WORKDIR /home/5GVideo
+COPY ./src/requirements.txt ./
+RUN python3 -m pip install -r ./requirements.txt
+
+# COPY ./src/stack.requirements.txt ./
+# RUN python3 -m pip install -r ./stack.requirements.txt
+
+COPY ./src/*.py ./
+COPY ./docker/cfg/HDRTools /home/cfg
+
+CMD ["celery", "-A", "vcc", "worker", "--loglevel=info", "--concurrency=2", "-n", "worker@%h"]

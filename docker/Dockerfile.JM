@@ -1,0 +1,25 @@
+
+FROM vcc:base
+WORKDIR /home/deps/JM
+
+# tags/JM-19.0 is the last tag for JM, missing some build toolchain updates commits,
+# therefor the latest commit from master is referenced here.
+ARG JM_VERSION=7901703651acf5a64df55615d02de261e9c0ee87
+
+RUN git clone https://vcgit.hhi.fraunhofer.de/jct-vc/JM.git . && git checkout ${JM_VERSION} 
+
+ENV CC=/usr/bin/gcc-7
+ENV CXX=/usr/bin/g++-7
+
+RUN mkdir -p ./build && cd ./build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    make -j 4
+
+ENV JM19_0_ENCODER=/home/deps/JM/bin/lencod_static
+ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
+
+ENV JM_ENCODER=/home/deps/JM/bin/lencod_static
+ENV JM_DECODER=/home/deps/JM/bin/ldecod_static
+
+ENV CC=/usr/bin/gcc-9
+ENV CXX=/usr/bin/g++-9

@@ -1,8 +1,5 @@
 # ignore everything
 **
 # whitelist
-!*.py
-!requirements.txt
-!docker/
-!report-template.json
-!/cfg/
+!src/
+!docker/cfg/
