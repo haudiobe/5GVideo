@@ -1,13 +1,16 @@
+from hashlib import md5
 import logging
+from re import template
 import click
-
+from datetime import datetime
 from pathlib import Path
 import struct
 import io
 import os
 import json
 import csv
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
+from copy import deepcopy
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, load_variants
 from encoders import get_encoder
@@ -42,16 +45,19 @@ def read_meta(f):
 
 
 def read_log(f, stats={}):
-    stats['meta'] = read_meta(f)
-    stats['metrics'] = [line.split() for line in iter_section(f)][0]
-    stats['frames'] = [line.split() for line in iter_section(f)]
-    stats['avg'] = [line.split() for line in iter_section(f)][0]
-    amplitude = [line.split() for line in iter_section(f)]
-    stats['min'] = amplitude[0]
-    stats['max'] = amplitude[1]
-    stats['perfs'] = "".join([*iter_section(f)])
-    return stats
-
+    try:
+        stats['meta'] = read_meta(f)
+        stats['metrics'] = [line.split() for line in iter_section(f)][0]
+        stats['frames'] = [line.split() for line in iter_section(f)]
+        stats['avg'] = [line.split() for line in iter_section(f)][0]
+        amplitude = [line.split() for line in iter_section(f)]
+        stats['min'] = amplitude[0]
+        stats['max'] = amplitude[1]
+        stats['perfs'] = "".join([*iter_section(f)])
+        return stats
+    except BaseException:
+        logging.error(f"Failed to parse metrics on {f}")
+        
 
 def parse_metrics(log):
     raw_data = None
@@ -325,7 +331,7 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
         else:
             metrics_sdr = compute_sdr_metrics(a, vd, dry_run=dry_run)
             metrics.update(metrics_sdr)
-        
+
     if not bool(os.getenv('VCC_DISABLE_VMAF')):
 
         if a.reference.transfer_characteristics != TransferFunction.BT2020_PQ:
@@ -334,10 +340,12 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
 
 
     enc = get_encoder(vd.generation['encoder'])
-    bitstream = Path(vd.bitstream['URI'])
-    s = enc.bitstream_size(bitstream)
-    metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
-    
+    bitstream = Path(vd.bitstream['URI']) if Path(vd.bitstream['URI']).exists() else  a.working_dir / Path(vd.bitstream['URI']).name
+
+    if not dry_run:
+        s = enc.bitstream_size(bitstream)
+        metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
+        
     # parse additional metrics from ENCODER log 
     metrics[Metric.BITRATELOG] = 0
     metrics[Metric.ENCODETIME] = 0
@@ -496,30 +504,88 @@ def csv_metrics(ctx):
 
 
 
+def __verify_metrics(a:AnchorTuple, orig_dir:Path, metric_keys:Tuple[str], row_template={}):
+    
+    rows = []
+    v = load_variants(a)
+    v_orig = load_variants(a, orig_dir / a.anchor_key)
+    
+    for ((_, vd), (__, vd_orig)) in zip(v, v_orig):
+
+        info_reconstruction = [("md5", vd.reconstruction["md5"])]
+        orig_info_reconstruction = [("md5", vd_orig.reconstruction["md5"])]
+        info_metrics = []
+        orig_info_metrics = []
+
+        reconstruction_ok = vd.reconstruction["md5"] == vd_orig.reconstruction["md5"]
+        metrics_ok = True
+
+        for key, val in vd.metrics.items():
+            k = key.csv_key
+            if len(metric_keys):
+                if not k in metric_keys:
+                    continue
+                elif k in ('bitrate_log', 'encode_time', 'decode_time'):
+                    continue
+            val_orig = vd_orig.metrics[key]
+            info_metrics.append((k, val))
+            orig_info_metrics.append((k, val_orig))
+            metrics_ok = metrics_ok and abs(val - val_orig) < 0.01
+
+        row = {
+            **row_template,
+            "key": vd.variant_id,
+            "file": "/".join(a.working_dir.parts[-4:]) + f'/{vd.variant_id}.json',
+            "orig-date": vd.bitstream.get("date", None),
+            "info-reconstruction": str(info_reconstruction),
+            "orig-info-reconstruction": str(orig_info_reconstruction),
+            "status-reconstruction": "successful" if reconstruction_ok else "failed",
+            "info-metrics": str(info_metrics),
+            "orig-info-metrics": str(orig_info_metrics),
+            "status-metrics": "successful" if metrics_ok else "failed",
+            # "type": "metrics",
+        }
+
+        rows.append(row)
+    
+    return rows
+
 @main.command()
 @click.pass_context
-def verify_metrics(ctx):
+@click.option('--company')
+@click.option('--email')
+@click.option('--doc')
+@click.option('--info')
+@click.option('-o', '--orig-dir', required=True, type=click.Path(exists=True, dir_okay=True, file_okay=False, readable=True))
+@click.option('-r', '--report', required=True, type=click.Path(exists=False, dir_okay=False, file_okay=True, writable=True))
+@click.argument('metric_keys', nargs=-1, required=False)
+def verify_metrics(ctx, company:str, email:str, doc:str, info:str, orig_dir:str, report:str, metric_keys:Tuple[str]):
     """
-    verify that metrics in json and metrics in csv match, usefull for verification purpose
+    verify that metrics in json and metrics in csv match.
+    reference metrics are expected to be available as csv files in the {anchor}/Metrics folder
+    verification metrics are expected to be available in the local bitstream .json metadata
     """
-    errors = []
-
+    rows = []
+    row = {
+        "company": company,
+        "e-mail": email,
+        "vdate": datetime.now().ctime(),
+        "document": doc
+    }
+    fieldnames = [
+        "key", "file", "orig-date", 
+        "status-reconstruction", "info-reconstruction", "orig-info-reconstruction", 
+        "status-metrics", "info-metrics", "orig-info-metrics",
+        *row.keys()
+    ]
     for a in ctx.obj['anchors']:
-        a_csv = a.working_dir.parent / 'Metrics' / (a.working_dir.with_suffix('.csv')).name
-        csv_metrics = anchor_metrics_from_csv(a_csv)
-        for variant_id, qp in a.iter_variants_params():
-            vfp = a.working_dir / f'{variant_id}.json'
-            vd = VariantData.load(vfp, variant_id)
-            for k, v in vd.metrics.items():
-                w = csv_metrics[qp][k]
-                if w != v:
-                    errors.append(f'{variant_id} @ {k.csv_key} : {v} (json) != {w} (csv)')
+        a_report = __verify_metrics(a, Path(orig_dir), metric_keys, row)
+        rows += a_report
+    with open(report, 'w', newline='') as fo:
+        writer = csv.DictWriter(fo, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
-    if len(errors):
-        for err in errors:
-            click.echo(err)
-    else:
-        click.echo("All metrics match")
 
 @main.command()
 @click.pass_context
