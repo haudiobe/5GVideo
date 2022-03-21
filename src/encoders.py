@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, List
 from constants import Metric
 from utils import run_process
-from sequences import ChromaFormat, ChromaSubsampling, VideoSequence
+from sequences import ChromaFormat, ChromaSubsampling, VideoSequence, as_8bit_sequence, as_10bit_sequence, as_exr2020_sequence
 from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 import logging as logger
@@ -159,8 +159,8 @@ class EncoderBase(ABC):
         dist.frame_count = a.reference.frame_count
         coded_bit_depth = cls.get_encoding_bitdepth(a.encoder_cfg)
         dist.bit_depth = coded_bit_depth
-        if not dry_run:
-            dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
+        # if not dry_run:
+        dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
 
@@ -179,11 +179,11 @@ class EncoderBase(ABC):
     def remove_sei(cls, bitstream_in:Path, bitstream_out:Path=None):
         tool = cls.sei_removal_app
         if tool is None:
-            return None
+            return None, None
         if bitstream_out is None:
             bitstream_out = bitstream_in.with_suffix('.seirm.bin')
         cmd = [tool, '-b', str(bitstream_in), '-o', str(bitstream_out), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
-        log = bitstream_out.with_suffix('._seirm.log')
+        log = bitstream_out.with_suffix('.log')
         run_process(log, *cmd, dry_run=False)
         return bitstream_out, log
 
@@ -429,6 +429,10 @@ class JM(EncoderBase):
     decoder_bin = "ldecod_static"
 
     @classmethod
+    def remove_sei(cls, *args, **kwargs):
+        return None, None
+    
+    @classmethod
     def get_encoding_bitdepth(cls, cfg:Path) -> int:
         # all configs have ProfileIDC = 100  (S3, S4, S5)
         return 8
@@ -512,41 +516,46 @@ class JM(EncoderBase):
 
     @classmethod
     def get_encoder_cmd(cls, a: AnchorTuple, variant_qp: str, bitstream: Path, reconstruction: Path = None) -> List[str]:
+        
+        ref = a.reference
+        if str(a.encoder_cfg_key).lower() == 's1-jm-01':
+            ref = as_8bit_sequence(a.reference)
+        
         args = [
             "-d", str(a.encoder_cfg),
-            "-p", f'InputFile={a.reference.path}',
+            "-p", f'InputFile={ref.path}',
             "-p", f'OutputFile={bitstream}',
-            "-p", f'FrameRate={float(a.reference.frame_rate)}',
+            "-p", f'FrameRate={float(ref.frame_rate)}',
             "-p", f'StartFrame={a.start_frame -1}',
             "-p", f'FramesToBeEncoded={a.frame_count}',
-            "-p", f'SourceWidth={a.reference.width}',
-            "-p", f'SourceHeight={a.reference.height}',
-            "-p", f'OutputWidth={a.reference.width}',
-            "-p", f'OutputHeight={a.reference.height}',
-            "-p", f'SourceBitDepthLuma={a.reference.bit_depth}',
-            "-p", f'SourceBitDepthChroma={a.reference.bit_depth}'
+            "-p", f'SourceWidth={ref.width}',
+            "-p", f'SourceHeight={ref.height}',
+            "-p", f'OutputWidth={ref.width}',
+            "-p", f'OutputHeight={ref.height}',
+            "-p", f'SourceBitDepthLuma={ref.bit_depth}',
+            "-p", f'SourceBitDepthChroma={ref.bit_depth}'
         ]
 
-        if a.reference.interleaved:
+        if ref.interleaved:
             args += ["-p", "Interleaved=1"]
 
-        if int(a.reference.chroma_format == ChromaFormat.RGB):
+        if int(ref.chroma_format == ChromaFormat.RGB):
             args += ["-p", 'RGBInput=1']
         else:
             args += ["-p", 'RGBInput=0']
 
-        if a.reference.video_full_range == 1:
+        if ref.video_full_range == 1:
             args += ["-p", f'StandardRange=0']
         else:
             args += ["-p", f'StandardRange=1']
 
-        if a.reference.chroma_subsampling == ChromaSubsampling.CS_400:
+        if ref.chroma_subsampling == ChromaSubsampling.CS_400:
             args += ["-p", 'YUVFormat=0']
-        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_420:
+        elif ref.chroma_subsampling == ChromaSubsampling.CS_420:
             args += ["-p", 'YUVFormat=1']
-        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_422:
+        elif ref.chroma_subsampling == ChromaSubsampling.CS_422:
             args += ["-p", 'YUVFormat=2']
-        elif a.reference.chroma_subsampling == ChromaSubsampling.CS_444:
+        elif ref.chroma_subsampling == ChromaSubsampling.CS_444:
             args += ["-p", 'YUVFormat=3']
 
         if reconstruction is not None:
@@ -558,7 +567,7 @@ class JM(EncoderBase):
 
     @classmethod
     def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
-        args = ["-i", f'{bitstream}', "-o", f'{reconstructed}']  # "-r", f'{a.reference.path}']
+        args = ["-i", f'{bitstream}', "-o", f'{reconstructed}']
         return args
 
 
@@ -610,11 +619,21 @@ class ETM(EncoderBase):
     @classmethod
     def get_decoder_cmd(cls, bitstream: Path, reconstructed: Path, a: AnchorTuple) -> List[str]:
         opl = bitstream.with_suffix('.opl')
+        bd = cls.get_encoding_bitdepth(a.encoder_cfg)
         args = [
             "-i", f'{bitstream}',
             "-o", f'{reconstructed}',
             "--opl", f'{opl}',  # "-f", f'{a.reference.frame_count}',
-            "--output_bit_depth", f'{a.reference.bit_depth}',  # defaults to 8 otherwise
+            "--output_bit_depth", f'{bd}',  # defaults to 8 otherwise
             "-v", '1'  # 0=quiet, 2=verbose
         ]
         return args
+
+    @classmethod
+    def get_encoding_bitdepth(cls, cfg:Path) -> int:
+        # all configs have ProfileIDC = 100  (S3, S4, S5)
+        with open(cfg) as f:
+            for l in f:
+                if l.startswith('codec_bit_depth'):
+                    return int(l.split('=')[-1])
+        assert False

@@ -1,3 +1,4 @@
+from asyncio.log import logger
 import json
 import csv
 import logging
@@ -7,7 +8,6 @@ from itertools import chain
 from utils import md5_checksum
 from constants import encoder_cfg_path, Metric, RefSequenceList, AnchorList, HDR_METRICS, SDR_METRICS, ENCODING
 from sequences import VideoSequence, TransferFunction
-
 
 
 class ReconstructionMeta:
@@ -27,6 +27,11 @@ class ReconstructionMeta:
             "log-file": self.decoder_log.name if hasattr(self.decoder_log, 'decoder_log') else None,
             "md5": self.reconstructed_md5
         }
+
+    def update(self, vp:Path, vd:'VariantData'):
+        for k, v in self.to_dict().items():
+            vd.reconstruction[k] = v
+        vd.save_as(vp)
 
 
 class VariantMetricSet(dict):
@@ -142,7 +147,7 @@ class VariantData:
                 binfp = fp.with_suffix('.bin')
                 bitstream['URI'] = binfp
                 logging.warning(f'replacing bitstream URI: {uri}\n\twith => {binfp}')
-
+            
             d = data.get("Metrics", None)
             metrics = None
             if (d is not None) and (type(d) is dict) :
@@ -499,6 +504,7 @@ def reference_sequences_dict(reference_list: Path, ref_sequences_dir: Path, rais
             if not meta.exists():
                 if raises:
                     raise FileNotFoundError(str(meta.resolve()))
+                logger.warn(f"VideoSequence file not found: {str(meta.resolve())}")
                 refs[k] = VideoSequence(meta, sequence={'Key': k})
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)

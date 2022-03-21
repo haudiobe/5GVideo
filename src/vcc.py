@@ -1,4 +1,4 @@
-from logging import info
+import logging
 import click
 from celery import Celery
 from celery.utils.log import get_task_logger
@@ -52,7 +52,8 @@ def decode_variant_task(anchor_key:str, variant_id:str, dry_run=False):
         vd.save_as(vp)
         logger.warn(f'creating missing bitstream metadata: {vp}')
     finally:
-        get_encoder(a.encoder_id).decode_variant(a, vd, dry_run=dry_run)
+        rec = get_encoder(a.encoder_id).decode_variant(a, vd, dry_run=dry_run)
+        rec.update(vp, vd)
 
 
 @app.task
@@ -62,6 +63,8 @@ def convert_sequence_task(conv:str, vs:str, dry_run=False):
         conv = Conversion.NONE
     elif conv == Conversion.HDRCONVERT_8TO10BIT.value:
         conv = Conversion.HDRCONVERT_8TO10BIT
+    elif conv == Conversion.HDRCONVERT_10TO8BIT.value:
+        conv = Conversion.HDRCONVERT_10TO8BIT
     elif conv == Conversion.HDRCONVERT_YCBR420TOEXR2020.value:
         conv = Conversion.HDRCONVERT_YCBR420TOEXR2020
     vs = VideoSequence.from_sidecar_metadata(vs)
@@ -131,7 +134,6 @@ def help(ctx):
     """
     key = None
     try:
-
         key = ctx.obj['command_key']
         cmd = main.commands[key]
         h = cmd.get_help(click.Context(cmd, parent=ctx.parent, info_name=key))
@@ -140,7 +142,7 @@ def help(ctx):
     
     except KeyError:
         pass
-
+    
     h = main.get_help(ctx)
     click.echo(h)
     if key != 'help':
@@ -162,11 +164,12 @@ def decode(ctx):
     queue = ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
-        for _, vd in load_variants(a):
+        for vp, vd in load_variants(a):
             if (vd is None) or ((variant_id is not None) and (variant_id != vd.variant_id)):
                     continue
             if not queue:
-                get_encoder(a.encoder_id).decode_variant(a, vd, dry_run = dry_run)
+                rec = get_encoder(a.encoder_id).decode_variant(a, vd, dry_run = dry_run)
+                rec.update(vp, vd)
             else:
                 decode_variant_task.delay(a.anchor_key, vd.variant_id, dry_run = dry_run)
 
@@ -259,8 +262,13 @@ def metrics(ctx):
             vfp = a.working_dir / f'{vd.variant_id}.json'
             match_found = True
             if not queue:
-                vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
-                vd.save_as(vfp)
+                try:
+                    vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
+                    vd.save_as(vfp)
+                except BaseException:
+                    logging.error('='*32)
+                    logging.error(vd.variant_id)
+                    logging.error('='*32)
             else:
                 compute_variant_metrics_task.delay(a.anchor_key, vd.variant_id, dry_run=dry_run)
         assert match_found, f'{variant_id} not found'

@@ -14,10 +14,10 @@ from copy import deepcopy
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, load_variants
 from encoders import get_encoder
-from conversion import Conversion, as_10bit_sequence, as_exr2020_sequence, get_anchor_conversion_type, hdr_convert_cmd_8to10bits
+from conversion import Conversion, get_anchor_conversion_type
 from constants import BITSTREAMS_DIR, SEQUENCES_DIR, ENCODING
 
-from sequences import VideoSequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
+from sequences import VideoSequence, as_8bit_sequence, as_10bit_sequence, as_exr2020_sequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
 from utils import run_process, from_enum
 
 class VideoFormatException(BaseException):
@@ -238,7 +238,11 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     conv = get_anchor_conversion_type(a)
     if conv[0] == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(ref)
-        assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+    elif conv[0] == Conversion.HDRCONVERT_10TO8BIT:
+        # ref is 10 bit, encoded on 8bit 
+        pass
+    assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
         assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
@@ -295,13 +299,18 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
 
     ref = a.reference
     dist = VideoSequence.from_sidecar_metadata( a.working_dir / f'{vd.variant_id}.yuv.json')
+    
     conv = get_anchor_conversion_type(a)
     if conv[0] == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(ref)
-        assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+    elif conv[0] == Conversion.HDRCONVERT_10TO8BIT:
+        ref = as_8bit_sequence(ref)
+    assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+    
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
         assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
+    
     assert ref.bit_depth == dist.bit_depth
 
     vmaf_model = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
@@ -318,8 +327,6 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
         metrics = { m: None for m in a.get_metrics_set() }
     else:
         metrics = vd.metrics.copy()
-
-    conv = get_anchor_conversion_type(a)
 
     if not os.getenv('VCC_DISABLE_HDRMETRICS'):
 

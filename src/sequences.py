@@ -1,10 +1,11 @@
+from asyncio.log import logger
 import json
 from enum import Enum
 from pathlib import Path
 
 import os
 from utils import from_enum
-
+import copy
 
 class ColorPrimaries(Enum):
     BT_709 = "1"
@@ -173,7 +174,8 @@ class VideoSequence(VideoInfo):
         
         uri = Path(data['Sequence']['URI'])
         local_file = Path(metadata).parent / uri.name  # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
-
+        if not local_file.exists():
+            logger.warn(f"VideoSequence file not found: {local_file}")
         if 'md5' not in data['Sequence']:
             print(f"/!\\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}")
         data['Sequence']['Key'] = None  # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.
@@ -186,3 +188,33 @@ class VideoSequence(VideoInfo):
         cc = data.get('copyRight', None)
 
         return VideoSequence(local_file, copyright=cc, contact=contact, sequence=data['Sequence'], **props)
+
+# return a modified VideoSequence obj pointing to a converted sequence
+
+def conversion_path(sequence: Path, suffix: str) -> Path:
+    return sequence.parent / 'tmp' / f'{sequence.stem}{suffix}'
+
+def as_10bit_sequence(yuv_in: VideoSequence) -> VideoSequence:
+    yuv_out = copy.deepcopy(yuv_in)
+    yuv_out.bit_depth = 10
+    yuv_out.path = conversion_path(yuv_out.path, '.10bit.yuv')
+    return yuv_out
+
+def as_8bit_sequence(yuv_in: VideoSequence) -> VideoSequence:
+    yuv_out = copy.deepcopy(yuv_in)
+    yuv_out.bit_depth = 8
+    yuv_out.path = conversion_path(yuv_out.path, '.8bit.yuv')
+    return yuv_out
+
+def as_exr2020_sequence(yuv_in: VideoSequence) -> VideoSequence:
+    exr_out = copy.deepcopy(yuv_in)
+    exr_out.bit_depth = 10
+    exr_out.chroma_subsampling = ChromaSubsampling.CS_444
+    exr_out.path = conversion_path(exr_out.path, '_2020_444_%05d.exr')
+    exr_out.chroma_subsampling = ChromaSubsampling.CS_444
+    exr_out.chroma_format = ChromaFormat.RGB
+    exr_out.transfer_characteristics = TransferFunction.NONE
+    exr_out.colour_primaries = ColorPrimaries.BT_2020
+    exr_out.video_full_range = 1
+    return exr_out
+
