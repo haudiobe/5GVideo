@@ -304,7 +304,8 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     if conv[0] == Conversion.HDRCONVERT_8TO10BIT:
         ref = as_10bit_sequence(ref)
     elif conv[0] == Conversion.HDRCONVERT_10TO8BIT:
-        ref = as_8bit_sequence(ref)
+        # ref is 10 bit, encoded on 8bit 
+        pass
     assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
     
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
@@ -539,23 +540,32 @@ def __verify_metrics(a:AnchorTuple, orig_dir:Path, metric_keys:Tuple[str], row_t
             orig_info_metrics.append((k, val_orig))
             metrics_ok = metrics_ok and abs(val - val_orig) < 0.01
 
-        row = {
+        row1 = {
             **row_template,
+            "type": "reconstruction",
             "key": vd.variant_id,
             "file": "/".join(a.working_dir.parts[-4:]) + f'/{vd.variant_id}.json',
             "orig-date": vd.bitstream.get("date", None),
-            "info-reconstruction": str(info_reconstruction),
-            "orig-info-reconstruction": str(orig_info_reconstruction),
-            "status-reconstruction": "successful" if reconstruction_ok else "failed",
-            "info-metrics": str(info_metrics),
-            "orig-info-metrics": str(orig_info_metrics),
-            "status-metrics": "successful" if metrics_ok else "failed",
-            # "type": "metrics",
+            "info": str(info_reconstruction),
+            "orig-info": str(orig_info_reconstruction),
+            "status": "successful" if reconstruction_ok else "failed",
         }
+        rows.append(row1)
 
-        rows.append(row)
-    
+        row2 = {
+            **row_template,
+            "type": "metrics",
+            "key": vd.variant_id,
+            "file": "/".join(a.working_dir.parts[-4:]) + f'/{vd.variant_id}.json',
+            "orig-date": vd.bitstream.get("date", None),
+            "info": str(info_metrics),
+            "orig-info": str(orig_info_metrics),
+            "status": "successful" if metrics_ok else "failed",
+        }
+        rows.append(row2)
+        
     return rows
+
 
 @main.command()
 @click.pass_context
@@ -580,9 +590,8 @@ def verify_metrics(ctx, company:str, email:str, doc:str, info:str, orig_dir:str,
         "document": doc
     }
     fieldnames = [
-        "key", "file", "orig-date", 
-        "status-reconstruction", "info-reconstruction", "orig-info-reconstruction", 
-        "status-metrics", "info-metrics", "orig-info-metrics",
+        "type", "key", "file", "orig-date", 
+        "status", "info", "orig-info", 
         *row.keys()
     ]
     for a in ctx.obj['anchors']:
