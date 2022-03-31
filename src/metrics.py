@@ -425,6 +425,7 @@ def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
     r = {}
     with open(csv_path, 'r', encoding = ENCODING ) as fo:
         csv_reader = csv.DictReader(fo)
+        unknown = set()
         for row in csv_reader:
             qp = None
             metrics = {}
@@ -433,10 +434,13 @@ def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
                     qp = v
                 else:
                     m = Metric.from_csv_key(k)
-                    assert m, f'Unknown metric key "{k}" used in csv metadata: {k}'
-                    metrics[m] = float(v)
+                    if m is None:
+                        unknown.add(k)
+                    else:
+                        metrics[m] = float(v)
                     
             r[qp] = metrics
+        print(f"Ignored the following columns when parsing csv metrics: {[*unknown]}") 
     return r
 
 
