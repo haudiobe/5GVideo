@@ -107,7 +107,7 @@ class Metric(enum.Enum):
     ENCODETIME = M("encode_time", "EncodeTime")
     DECODETIME = M("decode_time", "DecodeTime")
     DELTAE100 = M("de100", "DE100")
-    WTPSNR = M("wpsnr", "WTPSNR")
+    WTPSNR = M("wpsnr", "WPSNR")
     WTPSNR_Y = M("y_wpsnr", "YWPSNR")
     WTPSNR_U = M("u_wpsnr", "UWPSNR")
     WTPSNR_V = M("v_wpsnr", "VWPSNR")
