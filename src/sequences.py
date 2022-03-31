@@ -175,7 +175,7 @@ class VideoSequence(VideoInfo):
         uri = Path(data['Sequence']['URI'])
         local_file = Path(metadata).parent / uri.name  # if URI is absolute, it is interpreted as such, otherwise it is interpreted relative to the metatada directory
         if not local_file.exists():
-            logger.warn(f"VideoSequence file not found: {local_file}")
+            logger.debug(f"VideoSequence file not found: {local_file}")
         if 'md5' not in data['Sequence']:
             print(f"/!\\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}")
         data['Sequence']['Key'] = None  # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.

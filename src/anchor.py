@@ -146,7 +146,7 @@ class VariantData:
             if uri is None or uri.startswith('https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/'):
                 binfp = fp.with_suffix('.bin')
                 bitstream['URI'] = binfp
-                logging.warning(f'replacing bitstream URI: {uri}\n\twith => {binfp}')
+                logging.debug(f'replacing bitstream URI: {uri}\n\twith => {binfp}')
             
             d = data.get("Metrics", None)
             metrics = None
@@ -504,7 +504,7 @@ def reference_sequences_dict(reference_list: Path, ref_sequences_dir: Path, rais
             if not meta.exists():
                 if raises:
                     raise FileNotFoundError(str(meta.resolve()))
-                logger.warn(f"VideoSequence file not found: {str(meta.resolve())}")
+                logger.debug(f"VideoSequence file not found: {str(meta.resolve())}")
                 refs[k] = VideoSequence(meta, sequence={'Key': k})
                 continue
             vs = VideoSequence.from_sidecar_metadata(meta)

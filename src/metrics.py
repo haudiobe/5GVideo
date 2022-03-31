@@ -438,9 +438,9 @@ def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
                         unknown.add(k)
                     else:
                         metrics[m] = float(v)
-                    
             r[qp] = metrics
-        print(f"Ignored the following columns when parsing csv metrics: {[*unknown]}") 
+        if len(unknown):
+            logging.debug(f"Ignored {[*unknown]} columns when parsing {csv_path}") 
     return r
 
 
