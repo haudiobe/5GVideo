@@ -37,8 +37,8 @@ ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM13.0/bin/SEIRemovalAppStatic
 
 # ETM
 COPY --from=vcc:etm /home/deps/ETM7.5/bin /home/deps/ETM7.5/bin
-ENV ETM7_5_ENCODER=/home/deps/ETM7.5/bin/EncoderAppStatic
-ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/DecoderAppStatic
+ENV ETM7_5_ENCODER=/home/deps/ETM7.5/bin/evca_encoder
+ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/evca_decoder
 
 # scripts
 WORKDIR /home/5GVideo

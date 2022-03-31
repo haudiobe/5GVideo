@@ -15,6 +15,9 @@ ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/evca_decoder
 RUN git reset --hard && git checkout master
 RUN cd ./build/linux && make -j 4
 
+ENV ETM7_4_ENCODER=/home/deps/ETM7.5/bin/evca_encoder
+ENV ETM7_4_DECODER=/home/deps/ETM7.5/bin/evca_decoder
+
 ENV ETM_ENCODER=/home/deps/ETM/bin/evca_encoder
 ENV ETM_DECODER=/home/deps/ETM/bin/evca_decoder
 
