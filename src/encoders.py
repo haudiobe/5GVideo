@@ -1,8 +1,10 @@
+from builtins import Exception
+from ast import ExceptHandler
 from abc import ABC, abstractclassmethod
 import os
 import re
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Dict
 from constants import Metric
 from utils import run_process
 from sequences import ChromaFormat, ChromaSubsampling, VideoSequence, as_8bit_sequence, as_10bit_sequence, as_exr2020_sequence
@@ -10,7 +12,7 @@ from anchor import AnchorTuple, VariantData, ReconstructionMeta
 
 import logging as logger
 
-__encoders__ = {}
+__encoders__:Dict[str, 'EncoderBase'] = {}
 
 def register_encoder(cls: 'EncoderBase') -> Any:
     """a class decorator to register a custom encoder implementation
@@ -163,7 +165,6 @@ class EncoderBase(ABC):
         dist.dump(dst_dir / f'{v.variant_id}.yuv.json')
         return ReconstructionMeta(cls.encoder_id, reconstructed, logfile, md5=md5)
 
-
     @classmethod
     def get_encoding_bitdepth(cls, cfg:Path) -> int:
         # defaulty implem based on HM
@@ -172,7 +173,7 @@ class EncoderBase(ABC):
                 m = re.match(r'(InternalBitDepth\s*:\s*)(\d*)', line)
                 if m:
                     return int(m[2])
-            return None
+        raise Exception(f'{cls.encoder_id} - failed to parse coded bit depth in: {cfg}')
 
 
     @classmethod
@@ -502,8 +503,7 @@ class JM(EncoderBase):
         if ehf is not None:
             qp_args += ['-p', f'ExplicitHierarchyFormat={ehf}']
         
-        if a.encoder_cfg_key in  ['S1-JM-01', 'S4-JM-02', 'S5-JM-02']:
-            # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
+        # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
             if a.reference.frame_rate <= 30:
                 qp_args += ['-p', 'IntraPeriod=32', '-p', 'IDRPeriod=32'] 
             elif a.reference.frame_rate <= 60:
@@ -571,12 +571,20 @@ class JM(EncoderBase):
         return args
 
 
+
+@register_encoder
+class SCC(SCM):
+    encoder_id = os.getenv("SCC_VERSION", "SCC")
+
+
 @register_encoder
 class ETM(EncoderBase):
 
     encoder_id = os.getenv("ETM_VERSION", "ETM")
     encoder_bin = "evca_encoder"
     decoder_bin = "evca_decoder"
+    # sei_removal_app = os.getenv("ETM_SEI_REMOVAL_APP", "SEIRemovalAppStatic")
+
 
     @classmethod
     def get_variant_cmd(cls, a: AnchorTuple, qp) -> List[str]:
@@ -610,7 +618,7 @@ class ETM(EncoderBase):
         assert a.reference.chroma_sample_loc_type == 2, 'chroma_sample_loc_type != 2 not implemented'
 
         if reconstruction:
-            args += ['-r', reconstruction]
+            args += ['-r', str(reconstruction)]
 
         args += cls.get_variant_cmd(a, variant_qp)
 
@@ -623,17 +631,16 @@ class ETM(EncoderBase):
         args = [
             "-i", f'{bitstream}',
             "-o", f'{reconstructed}',
-            "--opl", f'{opl}',  # "-f", f'{a.reference.frame_count}',
-            "--output_bit_depth", f'{bd}',  # defaults to 8 otherwise
+            "--opl", str(opl),
+            "--output_bit_depth", str(bd),
             "-v", '1'  # 0=quiet, 2=verbose
         ]
         return args
 
     @classmethod
-    def get_encoding_bitdepth(cls, cfg:Path) -> int:
-        # all configs have ProfileIDC = 100  (S3, S4, S5)
+    def get_encoding_bitdepth(cls, cfg: Path) -> int:
         with open(cfg) as f:
             for l in f:
                 if l.startswith('codec_bit_depth'):
                     return int(l.split('=')[-1])
-        assert False
+        assert False, 'failed to parse codec_bit_depth in ETM encoder config'

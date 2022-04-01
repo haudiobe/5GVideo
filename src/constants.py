@@ -30,6 +30,8 @@ def encoder_cfg_path(cfg_key: str, bitstreams_dir:Path ) -> Path:
             enc = '265'
         elif enc == 'SCC':
             enc = '265'
+        elif enc == 'SCM':
+            enc = '265'
         elif enc == 'JM':
             enc = '264'
         return bitstreams_dir / f'{scenario}/{enc}/CFG/{cfg_key}.cfg'
