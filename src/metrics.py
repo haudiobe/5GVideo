@@ -261,7 +261,7 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     
 
 def compute_hdr_metrics_yuv(a: AnchorTuple, vd: VariantData, dry_run=False):
-    hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetricsYUV_PQ10.cfg'
+    hdr_metrics_cfg = Path(os.getenv('HDRMETRICS_CFG_DIR', '/home/cfg')) / 'HDRMetrics_wtPSNR.cfg'
     dist = VideoSequence.from_sidecar_metadata(a.working_dir / f'{vd.variant_id}.yuv.json')
     log = dist.path.with_suffix('.metrics.log')
     d = hdrtools_metrics(a.reference, dist, log = log, dry_run = dry_run, cfg = hdr_metrics_cfg)
