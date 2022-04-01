@@ -503,7 +503,8 @@ class JM(EncoderBase):
         if ehf is not None:
             qp_args += ['-p', f'ExplicitHierarchyFormat={ehf}']
         
-        # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
+        if a.encoder_cfg_key in  ['S1-JM-01', 'S4-JM-02', 'S5-JM-02']:
+            # 6.2.8.2.2/6.5.8.2.4/6.6.8.2.4	IntraPeriod: power of 2 value that is greater than or equal to the frame rate such that near 1 second is achieved
             if a.reference.frame_rate <= 30:
                 qp_args += ['-p', 'IntraPeriod=32', '-p', 'IDRPeriod=32'] 
             elif a.reference.frame_rate <= 60:
