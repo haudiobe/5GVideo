@@ -1,3 +1,4 @@
+from turtle import color
 import click
 import csv
 from pathlib import Path
@@ -12,6 +13,8 @@ from constants import BITSTREAMS_DIR, SEQUENCES_DIR
 from anchor import VariantData, VariantMetricSet, Metric, load_variants, AnchorTuple
 from metrics import load_csv_metrics
 
+def format_metric_key(k):
+    return str(k).replace("_","").replace("-","").lower()
 
 def sort_rates_on(rates, metric):
     """
@@ -76,17 +79,25 @@ def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], 
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     q_key = dist.csv_key.replace('_', ' ')
-    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=f'Quality ({q_key})')
+    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=q_key)
 
 
 def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], sanitize=True, save_plots=False, strict=False) -> Iterable[Tuple[str, VariantMetricSet]]:
 
     anchor_variants = [v for (_, v) in load_variants(anchor)]
-    load_csv_metrics(anchor, anchor_variants)
+    try:
+        load_csv_metrics(anchor, anchor_variants)
+    except FileNotFoundError:
+        if strict:
+            raise
 
     test_variants = [v for (_, v) in load_variants(test)]
-    load_csv_metrics(test, test_variants)
-    
+    try:
+        load_csv_metrics(test, test_variants)
+    except FileNotFoundError:
+        if strict:
+            raise
+
     res = {}
     fig = None
     for m in metrics:
@@ -122,10 +133,18 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
     for aref, atest in zip(anchors, tests):
 
         vref = [v for (_, v) in load_variants(aref)]
-        load_csv_metrics(aref, vref)
+        try:
+            load_csv_metrics(aref, vref)
+        except FileNotFoundError:
+            if strict:
+                raise
 
         vtest = [v for (_, v) in load_variants(atest)]
-        load_csv_metrics(atest, vtest)
+        try:
+            load_csv_metrics(atest, vtest)
+        except FileNotFoundError:
+            if strict:
+                raise
 
         arates = {}
         for key in metrics:
@@ -135,7 +154,7 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
                 plt.close(fig)
                 arates[key] = f'{round(bd, 3):.3f}'
                 if save_plots:
-                    fname = atest.working_dir.parent / 'Characterization' / (f'{aref.working_dir.name}.{atest.working_dir.name}'.upper() + f'{key}.png'.lower())
+                    fname = atest.working_dir.parent / 'Characterization' / (f'{aref.working_dir.name}.{atest.working_dir.name}'.upper() + f'.{key}.png'.lower())
                     if not fname.parent.exists():
                         fname.parent.mkdir()
                     fig.savefig(fname)
@@ -242,7 +261,7 @@ def strictly_increasing(samples):
     return True
 
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="Quality", bitrate_label = "Bit rate in kbit/s", sanitize=False, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="metric", bitrate_unit = "kbit/s", sanitize=False, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
         [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
@@ -282,32 +301,49 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
         avg_diff = (np.exp(avg_exp_diff) - 1) * -100
 
         nplots = 3 if debug else 2
+        params = {'mathtext.default': 'regular', 'font.size': 18 }
+        plt.rcParams.update(params)
         fig, axs = plt.subplots(1, nplots, figsize=(30, 12))
+        
+        cs1 = lambda A: scipy.interpolate.pchip_interpolate(R1, DIST1, A)
+        cs2 = lambda A: scipy.interpolate.pchip_interpolate(R2, DIST2, A)
+        def rcs(a):
+            rmin = np.amin(a)
+            rmax = np.amax(a)
+            return np.arange(rmin, rmax, step=(rmax-rmin)/1e4)
+        rcs1 = rcs(R1)
+        rcs2 = rcs(R2)
 
-        axs[0].plot(R1, DIST1, 'o-', R2, DIST2, 'o-')
-        axs[0].set_xlabel(bitrate_label, fontsize=21)
-        axs[0].set_ylabel(quality_label, fontsize=21)
+        m_key = format_metric_key(quality_label)
+        c0 = '#1f77b4'
+        c1 = '#ff7f0e'
+        axs[0].plot(R1, d1, 'o', color=c0)
+        axs[0].plot(R2, d2, 'o', color=c1)
+        axs[0].plot(rcs1, cs1(rcs1), '-', color=c0)
+        axs[0].plot(rcs2, cs2(rcs2), '-', color=c1) 
+        axs[0].set_xlabel(f'Bitrate {bitrate_unit}', fontsize=28, labelpad=28)
+        axs[0].set_ylabel(m_key, fontsize=28, labelpad=28)
         axs[0].grid(True)
-        axs[0].tick_params(axis='both', which='major', labelsize=21)
-        axs[0].set_title('Rate-Quality Curve', fontdict={'fontsize': 21, 'fontweight': 'medium'})
+        axs[0].tick_params(axis='both', which='major', labelsize=18)
+        axs[0].set_title('Rate-Quality Curve', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
         axs[0].legend([anchor_label, test_label])
         axs[0].axhline(min_int, linestyle='dashed', color='red')
         axs[0].axhline(max_int, linestyle='dashed', color='red')
 
-        axs[1].plot(r1, d1, 'o:', label=anchor_label)
-        axs[1].plot(r2, d2, 'o:', label=test_label)
-        axs[1].plot(v1, samples, '-') #, label="anchor (interpolated)")
-        axs[1].plot(v2, samples, '-') #, label="test (interpolated)")
-
+        axs[1].plot(r1, d1, 'o', label=anchor_label, color=c0)
+        axs[1].plot(r2, d2, 'o', label=test_label, color=c1)
+        axs[1].plot(v1, samples, '-', color=c0)
+        axs[1].plot(v2, samples, '-', color=c1)
         axs[1].legend()
-        axs[1].set_xlabel(bitrate_label, fontsize=21)
-        axs[1].set_ylabel(quality_label, fontsize=21)
+        axs[1].set_xlabel('log$_{e}$ Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
+        axs[1].set_ylabel(m_key, fontsize=28, labelpad=28)
         axs[1].grid(True)
-        axs[1].tick_params(axis='both', which='major', labelsize=21)
-        axs[1].set_title(f'BD rate gain: {avg_diff:.3f}', fontdict={'fontsize': 21, 'fontweight': 'medium'})
+        axs[1].tick_params(axis='both', which='major', labelsize=18)
+        axs[1].set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
         axs[1].axhline(min_int, linestyle='dashed', color='red')
         axs[1].axhline(max_int, linestyle='dashed', color='red')
-        axs[1].fill_betweenx(samples, v1, v2, color='red', alpha=0.25)
+        c = 'red' if avg_diff < 0 else 'green'
+        axs[1].fill_betweenx(samples, v1, v2, color=c, alpha=0.25)
 
         if debug:
             x = [i * interval for i in range(100)]
