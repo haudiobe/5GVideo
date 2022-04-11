@@ -329,10 +329,9 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
     enc = get_encoder(vd.generation['encoder'])
     bitstream = Path(vd.bitstream['URI']) if Path(vd.bitstream['URI']).exists() else  a.working_dir / Path(vd.bitstream['URI']).name
 
-    if not dry_run:
-        s = enc.bitstream_size(bitstream)
-        metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
-        
+    s = enc.bitstream_size(bitstream)
+    metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
+    
     # parse additional metrics from ENCODER log 
     metrics[Metric.BITRATELOG] = 0
     metrics[Metric.ENCODETIME] = 0
