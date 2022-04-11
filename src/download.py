@@ -124,8 +124,8 @@ def cli(ctx, dry_run:bool, overwrite:bool, pool_size:int, verbose:bool):
 @cli.command()
 @click.pass_context
 @click.option('--json/--no-json', is_flag=True, default=True, help='./*/*.json bitstream metadata')
-@click.option('--bitstream/--no-bitstream', is_flag=True, default=True, help='./*/*.bin bitstream')
-@click.option('--metrics/--no-metrics', is_flag=True, default=True, help='./Metrics/*.csv for each bistream')
+@click.option('--bitstream/--no-bitstream', is_flag=True, default=False, help='./*/*.bin bitstream')
+@click.option('--metrics/--no-metrics', is_flag=True, default=False, help='./Metrics/*.csv for each bistream')
 @click.option('--configs/--no-configs', is_flag=True, default=True, help='./CFG/encoder.cfg')
 @click.option('--sequences/--no-sequences', is_flag=True, default=True, help='../references.csv')
 @click.argument('streams_list_url', required=True)

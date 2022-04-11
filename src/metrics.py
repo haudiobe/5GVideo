@@ -1,6 +1,4 @@
-from hashlib import md5
 import logging
-from re import template
 import click
 from datetime import datetime
 from pathlib import Path
@@ -10,15 +8,14 @@ import os
 import json
 import csv
 from typing import Any, Dict, List, Tuple
-from copy import deepcopy
 
 from anchor import AnchorTuple, VariantData, Metric, VariantMetricSet, load_variants
 from encoders import get_encoder
 from conversion import Conversion, get_anchor_conversion_type
 from constants import BITSTREAMS_DIR, SEQUENCES_DIR, ENCODING
 
-from sequences import VideoSequence, as_8bit_sequence, as_10bit_sequence, as_exr2020_sequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
-from utils import run_process, from_enum
+from sequences import VideoSequence, as_10bit_sequence, as_exr2020_sequence, ColorPrimaries, ChromaFormat, ChromaSubsampling, TransferFunction
+from utils import run_process
 
 class VideoFormatException(BaseException):
     pass
@@ -170,30 +167,13 @@ def hdrtools_metrics(ref: VideoSequence, dist: VideoSequence, log: Path, dry_run
 
 
 def vmaf_metrics(ref: VideoSequence, dist: VideoSequence, model="version=vmaf_v0.6.1", dry_run=False):
-    # VMAF may not support skipping frames at the beginning of input sequences
     output = dist.path.with_suffix('.vmaf.json')
     log = dist.path.with_suffix('.vmaf.log')
     vmaf_exec = os.getenv('VMAF_EXEC', 'vmafossexec')
-    """
-    cmd = [
-        vmaf_exec,
-        "-r", f'{ref.path}', 
-        "-d", f'{dist.path}',
-        "-w", f'{ref.width}',
-        "-h", f'{ref.height}',
-        "-p", f'{ref.chroma_subsampling.value}',
-        "-b", f'{ref.bit_depth}',
-        "--json", "-o", str(output),
-        "-m", model
-   ]
-    """
-    print(f'[{ref.bit_depth}\tbits]:: ', ref.path.name)
-    print(f'[{dist.bit_depth}\tbits]:: ', dist.path.name)
+    
     try:
         assert not dist.interlaced and not ref.interlaced
         assert not dist.interleaved and not ref.interleaved
-        # dist.chroma_format
-        # dist.chroma_subsampling
     except AssertionError:
         print('Invalid format for VMAF. Must be one of yuv420p, yuv420p10le, yuv420p12le, yuv420p16le')
 
@@ -245,7 +225,7 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
 
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
-        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
+        assert dist.path.exists(), f'pre-processing step needed -- Not found: {dist.path}'
     assert ref.bit_depth == dist.bit_depth
     
     log = dist.path.with_suffix('.metrics.log')
@@ -310,8 +290,7 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
-        assert dist.path.exists(), f'bitstream needs pre-processing - Not found: {dist.path}'
-    
+        assert dist.path.exists(), f'pre-processing step needed - Not found: {dist.path}'
     assert ref.bit_depth == dist.bit_depth
 
     vmaf_model = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
@@ -323,7 +302,7 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
 
 def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) -> VariantMetricSet:
 
-    metrics = None
+    metrics:dict = {}
     if vd.metrics is None:
         metrics = { m: None for m in a.get_metrics_set() }
     else:
@@ -499,7 +478,7 @@ def csv_metrics(ctx):
     metrics = None
     for a in ctx.obj['anchors']:
         metrics = a.get_metrics_set()
-        # compare.py currently needs individual CSV files 
+        # compare.py uses needs individual CSV files 
         a_rows = anchor_metrics_to_csv(a, save = True)
         a_rows[0]['sequence'] = a.reference.sequence['Key']
         rows.append(a_rows)
@@ -554,6 +533,7 @@ def __verify_metrics(a:AnchorTuple, orig_dir:Path, metric_keys:Tuple[str], row_t
             "orig-info": str(orig_info_reconstruction),
             "status": "successful" if reconstruction_ok else "failed",
         }
+
         rows.append(row1)
 
         row2 = {
@@ -566,8 +546,9 @@ def __verify_metrics(a:AnchorTuple, orig_dir:Path, metric_keys:Tuple[str], row_t
             "orig-info": str(orig_info_metrics),
             "status": "successful" if metrics_ok else "failed",
         }
+
         rows.append(row2)
-        
+    
     return rows
 
 

@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import hashlib
 from pathlib import Path
@@ -11,6 +12,10 @@ def from_enum(cls: Enum, value):
 
 
 def md5_checksum(p: Path):
+    if not p.exists():
+        m = f"Not found: {p}"
+        logging.warn(m)
+        return m
     md5 = hashlib.md5()
     block_size = 128 * md5.block_size
     with open(p, 'rb') as f:
