@@ -363,6 +363,15 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
     return metrics
 
 
+def compute_bitrate(a: AnchorTuple, vd: VariantData, digits=3) -> float:
+    if not a.reference.path.exists():
+        raise FileNotFoundError(a.reference.path)
+    enc = get_encoder(vd.generation['encoder'])
+    bitstream = Path(vd.bitstream['URI']) if Path(vd.bitstream['URI']).exists() else  a.working_dir / Path(vd.bitstream['URI']).name
+    s = enc.bitstream_size(bitstream)
+    a.frame_count / a.reference.frame_rate
+    return int(s * 8 / a.duration) * 1e-3
+
 
 def anchor_metrics_csv_rows(a: AnchorTuple) -> List[Dict[str, Any]]:
     rows = []

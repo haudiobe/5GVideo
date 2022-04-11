@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 
 from anchor import AnchorTuple, VariantData, load_variants
-from constants import BITSTREAMS_DIR, SEQUENCES_DIR
+from constants import BITSTREAMS_DIR, SEQUENCES_DIR, Metric
 from conversion import Conversion, get_anchor_conversion_type, convert_sequence
 from encoders import get_encoder
-from metrics import compute_metrics
+from metrics import compute_metrics, compute_bitrate
 from sequences import VideoSequence
 
 
@@ -78,7 +78,7 @@ def compute_variant_metrics_task(anchor_key:str, variant_id:str, dry_run=False):
     a = AnchorTuple.load(anchor_key, bitstreams_dir, sequences_dir)
     sequence_uri = a.reference.sequence.get('URI', None)
     sequence_key = a.reference.sequence.get('Key', None)
-    assert sequence_uri is not None and Path(sequence_uri).exists, f'Reference sequence {sequence_key} not found in {sequences_dir}'
+    assert sequence_uri is not None and Path(sequence_uri).exists, f'Reference sequence [{sequence_key}] not found: {sequence_uri}'
     vfp = a.working_dir / f'{variant_id}.json'
     vd = VariantData.load(vfp, variant_id)
     vd.metrics = compute_metrics(a, vd, dry_run=dry_run)
@@ -87,11 +87,12 @@ def compute_variant_metrics_task(anchor_key:str, variant_id:str, dry_run=False):
 
 @click.group()
 @click.pass_context
+@click.option('--working-dir', envvar='VCC_WORKING_DIR', required=True, type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True), help="Directory containing bitstreams and pre-computed metrics, alternatively this can be set with VCC_WORKING_DIR environment variable." )
 @click.option('--queue/--no-queue', is_flag=True, required=False, default=False, help='Process sequentialy (--no-queue, default), or use distributed processing with a Celery backend (--queue).')
 @click.option('--dry-run', is_flag=True, required=False, default=False, help='Print subprocess commands (eg. encoder, metrics computation, sequence conversion) to stdout instead of actually running them. All other processing steps are be performed as ususal (eg. log parsing, .json or .csv file generation/update) or fail when files they depend upon are missing.')
 @click.option('-s/-c', default=True, help="Signals whether KEY is a sequence IDs (-s, default), or an encoder config ID (-c)")
 @click.argument('key', nargs=1, required=True)
-def main(ctx, queue:bool, dry_run:bool, s:bool, key:str):
+def main(ctx, working_dir:str, queue:bool, dry_run:bool, s:bool, key:str):
     """
     \b
     to get detailed usage of a specific command, use:
@@ -99,6 +100,7 @@ def main(ctx, queue:bool, dry_run:bool, s:bool, key:str):
         vcc.py COMMAND help
     """
     ctx.ensure_object(dict)
+    working_dir = Path(working_dir)
 
     parts = key.split('-')
     ctx.obj['variant_id'] = None
@@ -115,8 +117,8 @@ def main(ctx, queue:bool, dry_run:bool, s:bool, key:str):
     ctx.obj['dry_run'] = dry_run
     ctx.obj['queue'] = queue
 
-    bitstreams_dir = VCC_WORKING_DIR / BITSTREAMS_DIR
-    sequences_dir = VCC_WORKING_DIR / SEQUENCES_DIR
+    bitstreams_dir = working_dir / BITSTREAMS_DIR
+    sequences_dir = working_dir / SEQUENCES_DIR
     if s:
         ctx.obj['anchors'] = [AnchorTuple.load(key, bitstreams_dir, sequences_dir)]
     else:
@@ -271,6 +273,33 @@ def metrics(ctx):
                     logging.error('='*32)
             else:
                 compute_variant_metrics_task.delay(a.anchor_key, vd.variant_id, dry_run=dry_run)
+        assert match_found, f'{variant_id} not found'
+
+
+@main.command(add_help_option=False)
+@click.pass_context
+def bitrate(ctx):
+
+    variant_id = ctx.obj['variant_id']
+    # dry_run = ctx.obj['dry_run']
+    # if ctx.obj['queue']
+
+    for a in ctx.obj['anchors']:
+        match_found = variant_id is None
+        for _, vd in load_variants(a, a.working_dir):
+            if vd is None:
+                continue
+            if ((variant_id is not None) and (variant_id != vd.variant_id)):
+                continue
+            vfp = a.working_dir / f'{vd.variant_id}.json'
+            match_found = True
+            try:
+                vd.metrics[Metric.BITRATE] = compute_bitrate(a, vd)
+                vd.save_as(vfp)
+            except BaseException as e:
+                logging.error('='*32)
+                logging.error(vd.variant_id)
+                logging.error('='*32)
         assert match_found, f'{variant_id} not found'
 
 
