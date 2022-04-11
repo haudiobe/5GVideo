@@ -75,14 +75,14 @@ def rd_metrics(variants: List[VariantData], rate:Metric, dist:Metric) -> Iterabl
     return zip(*rd)
 
 
-def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], dist:Metric, rate=Metric.BITRATE, anchor_label="anchor", test_label="test", sanitize=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], dist:Metric, rate=Metric.BITRATE, anchor_label="anchor", test_label="test", sanitize=True, log_rate_plot=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     q_key = dist.csv_key.replace('_', ' ')
-    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=q_key)
+    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=q_key, log_rate_plot=log_rate_plot)
 
 
-def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], sanitize=True, save_plots=False, strict=False) -> Iterable[Tuple[str, VariantMetricSet]]:
+def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], save_plots=False, strict=False, **kwargs) -> Iterable[Tuple[str, VariantMetricSet]]:
 
     anchor_variants = [v for (_, v) in load_variants(anchor)]
     try:
@@ -102,7 +102,7 @@ def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[
     fig = None
     for m in metrics:
         try:
-            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, dist=m, anchor_label=str(anchor.anchor_key), test_label=str(test.anchor_key), sanitize=sanitize)
+            fig, bd, *_ = compare_anchors_metrics(anchor_variants, test_variants, dist=m, anchor_label=str(anchor.anchor_key), test_label=str(test.anchor_key), **kwargs)
             plt.ioff()
             plt.close(fig)
             res[m] = f'{round(bd, 3):.3f}'
@@ -124,7 +124,7 @@ def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[
     return anchor.reference.sequence['Key'], res
 
 
-def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metrics: List[str], save_plots=False, strict=False):
+def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metrics: List[str], save_plots=False, strict=False, **kwargs):
 
     assert len(anchors) == len(tests), f'reference has {len(anchors)} anchors, test has {len(tests)} anchors.'
 
@@ -149,7 +149,7 @@ def compare_anchors(anchors: List[AnchorTuple], tests: List[AnchorTuple], metric
         arates = {}
         for key in metrics:
             try:
-                fig, bd, *_ = compare_anchors_metrics(vref, vtest, dist=key, anchor_label=str(aref.anchor_key), test_label=str(atest.anchor_key))
+                fig, bd, *_ = compare_anchors_metrics(vref, vtest, dist=key, anchor_label=str(aref.anchor_key), test_label=str(atest.anchor_key), **kwargs)
                 plt.ioff()
                 plt.close(fig)
                 arates[key] = f'{round(bd, 3):.3f}'
@@ -261,7 +261,7 @@ def strictly_increasing(samples):
     return True
 
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="metric", bitrate_unit = "kbit/s", sanitize=False, debug=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="metric", bitrate_unit = "kbit/s", sanitize=False, log_rate_plot=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
         [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
@@ -300,57 +300,63 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
         avg_exp_diff = (int2 - int1) / (max_int - min_int)
         avg_diff = (np.exp(avg_exp_diff) - 1) * -100
 
-        nplots = 3 if debug else 2
-        params = {'mathtext.default': 'regular', 'font.size': 18 }
+        nplots = 1
+        params = {
+            'mathtext.default': 'regular', 
+            'font.size': 18
+        }
         plt.rcParams.update(params)
-        fig, axs = plt.subplots(1, nplots, figsize=(30, 12))
+        fig, axs = plt.subplots(1, nplots, figsize=(12, 12))
         
-        cs1 = lambda A: scipy.interpolate.pchip_interpolate(R1, DIST1, A)
-        cs2 = lambda A: scipy.interpolate.pchip_interpolate(R2, DIST2, A)
-        def rcs(a):
-            rmin = np.amin(a)
-            rmax = np.amax(a)
-            return np.arange(rmin, rmax, step=(rmax-rmin)/1e4)
-        rcs1 = rcs(R1)
-        rcs2 = rcs(R2)
-
         m_key = format_metric_key(quality_label)
         c0 = '#1f77b4'
         c1 = '#ff7f0e'
-        axs[0].plot(R1, d1, 'o', color=c0)
-        axs[0].plot(R2, d2, 'o', color=c1)
-        axs[0].plot(rcs1, cs1(rcs1), '-', color=c0)
-        axs[0].plot(rcs2, cs2(rcs2), '-', color=c1) 
-        axs[0].set_xlabel(f'Bitrate {bitrate_unit}', fontsize=28, labelpad=28)
-        axs[0].set_ylabel(m_key, fontsize=28, labelpad=28)
-        axs[0].grid(True)
-        axs[0].tick_params(axis='both', which='major', labelsize=18)
-        axs[0].set_title('Rate-Quality Curve', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
-        axs[0].legend([anchor_label, test_label])
-        axs[0].axhline(min_int, linestyle='dashed', color='red')
-        axs[0].axhline(max_int, linestyle='dashed', color='red')
+        dist_all = np.concatenate((DIST1, DIST2))
+        samples2 = np.linspace(np.amin(dist_all), np.amax(dist_all), num=100)
+        
+        if log_rate_plot:
+            w1 = scipy.interpolate.pchip_interpolate(d1, r1, samples2)
+            w2 = scipy.interpolate.pchip_interpolate(d2, r2, samples2)
+            axs.plot(r1, d1, 'o', color=c0)
+            axs.plot(r2, d2, 'o', color=c1)
+            axs.plot(v1, samples, '-', label=anchor_label, color=c0)
+            axs.plot(w1, samples2, ':', color=c0)
+            axs.plot(v2, samples, '-', label=test_label, color=c1)
+            axs.plot(w2, samples2, ':', color=c1)
+            axs.legend()
+            axs.set_xlabel('log$_{e}$ Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
+            axs.set_ylabel(m_key, fontsize=28, labelpad=28)
+            axs.grid(True)
+            axs.tick_params(axis='both', which='major', labelsize=18)
+            axs.set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
+            axs.axhline(min_int, linestyle='dashed', color='red')
+            axs.axhline(max_int, linestyle='dashed', color='red')
+            c = 'red' if avg_diff < 0 else 'green'
+            axs.fill_betweenx(samples, v1, v2, color=c, alpha=0.25)
 
-        axs[1].plot(r1, d1, 'o', label=anchor_label, color=c0)
-        axs[1].plot(r2, d2, 'o', label=test_label, color=c1)
-        axs[1].plot(v1, samples, '-', color=c0)
-        axs[1].plot(v2, samples, '-', color=c1)
-        axs[1].legend()
-        axs[1].set_xlabel('log$_{e}$ Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
-        axs[1].set_ylabel(m_key, fontsize=28, labelpad=28)
-        axs[1].grid(True)
-        axs[1].tick_params(axis='both', which='major', labelsize=18)
-        axs[1].set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
-        axs[1].axhline(min_int, linestyle='dashed', color='red')
-        axs[1].axhline(max_int, linestyle='dashed', color='red')
-        c = 'red' if avg_diff < 0 else 'green'
-        axs[1].fill_betweenx(samples, v1, v2, color=c, alpha=0.25)
+        else:
+            p1 = scipy.interpolate.pchip_interpolate(DIST1, R1, samples)
+            p2 = scipy.interpolate.pchip_interpolate(DIST2, R2, samples)
+            w1 = scipy.interpolate.pchip_interpolate(DIST1, R1, samples2)
+            w2 = scipy.interpolate.pchip_interpolate(DIST2, R2, samples2)
 
-        if debug:
-            x = [i * interval for i in range(100)]
-            axs[2].set_xlabel('composite trapezoidal integration', fontsize=21)
-            axs[2].plot(x, v1, '-', label="anchor (interpolated)")
-            axs[2].plot(x, v2, '-', label="test (interpolated)")
-            axs[2].fill_between(x, v1, v2, color='red', alpha=0.75)
+            axs.plot(R1, d1, 'o', color=c0)
+            axs.plot(R2, d2, 'o', color=c1)
+            axs.plot(p1, samples, '-', label=anchor_label, color=c0)
+            axs.plot(w1, samples2, ':')
+            axs.plot(p2, samples, '-', label=test_label, color=c1)
+            axs.plot(w2, samples2, ':')
+            axs.legend()
+            axs.set_xlabel('Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
+            axs.set_ylabel(m_key, fontsize=28, labelpad=28)
+            axs.grid(True)
+            axs.tick_params(axis='both', which='major', labelsize=18)
+            axs.set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
+            axs.axhline(min_int, linestyle='dashed', color='red')
+            axs.axhline(max_int, linestyle='dashed', color='red')
+            c = 'red' if avg_diff < 0 else 'green'
+            axs.fill_betweenx(samples, p1, p2, color=c, alpha=0.25)
+
 
     except ValueError as ve:
         print(ve)
@@ -370,12 +376,13 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
 @click.option('--working-dir', envvar='VCC_WORKING_DIR', required=True,
     type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True),
     help="directory containing bitstreams and pre-computed metrics, can be set with VCC_WORKING_DIR environment variable." )
+@click.option('-l', '--log-rate-plot', required=False, default=False, is_flag=True, help="draw rd curve in log rate domain.")
 @click.option('-p', '--plot', required=False, default=False, is_flag=True, help="enable rd curve & bd rate plots when comparing encoder configs.")
 @click.option('-s/-c', required=True, default=True, help="specifies if anchor/test are: sequence IDs or encoder configs IDs")
 @click.argument('anchor_key', required=True)
 @click.argument('test_key', required=True)
 @click.argument('metric_keys', nargs=-1, required=False)
-def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metric_keys:Tuple[str]):
+def main(working_dir:str, log_rate_plot:bool, plot:bool, s:bool, anchor_key:str, test_key:str, metric_keys:Tuple[str]):
     """
     The script expects data to follow data organization as found in: https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
     \b
@@ -432,7 +439,7 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metri
         test = AnchorTuple.load(test_key, bitstreams_dir, sequences_dir)
         if len(metrics) == 0:
             metrics = [m for m in anchor.get_metrics_set() if m not in METRIC_BLACKLIST]
-        _ = compare_sequences(anchor, test, metrics, save_plots=True)
+        _ = compare_sequences(anchor, test, metrics, save_plots=True, log_rate_plot=log_rate_plot)
 
     else:
         anchors = AnchorTuple.iter_cfg_anchors(anchor_key, bitstreams_dir, sequences_dir)
@@ -441,7 +448,7 @@ def main(working_dir:str, plot:bool, s:bool, anchor_key:str, test_key:str, metri
         data = []
         if len(metrics) == 0:
             metrics = [m for m in t.get_metrics_set() if m not in METRIC_BLACKLIST]
-        for (seqid, r) in compare_anchors(anchors, tests, metrics, save_plots=True):
+        for (seqid, r) in compare_anchors(anchors, tests, metrics, save_plots=True, log_rate_plot=log_rate_plot):
             r['reference'] = seqid
             data.append(r)
         outp = t.working_dir.parent  / 'Characterization' / f'{anchor_key}.{test_key}.csv'.lower()
