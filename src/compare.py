@@ -197,7 +197,7 @@ def csv_dump(data, fp, metrics, extras=['reference']):
                 row[k] = r[k]
 
             for k in metrics:
-                row[k.csv_key] = r[k]
+                row[k.csv_key] = round(float(r[k]), 1)
 
                 if len(data) == 1:
                     continue
@@ -208,11 +208,13 @@ def csv_dump(data, fp, metrics, extras=['reference']):
                 if isinstance(v, BaseException):
                     print(v)
                     continue
+                """
                 try:
-                    v = float(v)
+                    v = 
                 except BaseException as e:
                     print(e)
                     continue
+                """
                 
                 if k in stats["min"]:
                     stats["min"][k] = min(v, stats["min"][k])
@@ -250,7 +252,7 @@ def csv_dump(data, fp, metrics, extras=['reference']):
                 for j in stats["avg"][k]:
                     avg += j
                 avg /= len(stats["avg"][k])
-            r[k.csv_key] = avg
+            r[k.csv_key] = round(avg, 1)
         writer.writerow(r)
 
 
