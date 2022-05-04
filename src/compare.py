@@ -298,7 +298,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
         int1 = np.trapz(v1, dx=interval)
         int2 = np.trapz(v2, dx=interval)
         avg_exp_diff = (int2 - int1) / (max_int - min_int)
-        avg_diff = (np.exp(avg_exp_diff) - 1) * -100
+        avg_diff = round((np.exp(avg_exp_diff) - 1) * -100, 1)
 
         nplots = 1
         params = {
@@ -328,7 +328,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
             axs.set_ylabel(m_key, fontsize=28, labelpad=28)
             axs.grid(True)
             axs.tick_params(axis='both', which='major', labelsize=18)
-            axs.set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
+            axs.set_title(f'BDR-{m_key}: {avg_diff:.1f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
             axs.axhline(min_int, linestyle='dashed', color='red')
             axs.axhline(max_int, linestyle='dashed', color='red')
             c = 'red' if avg_diff < 0 else 'green'
@@ -351,7 +351,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
             axs.set_ylabel(m_key, fontsize=28, labelpad=28)
             axs.grid(True)
             axs.tick_params(axis='both', which='major', labelsize=18)
-            axs.set_title(f'BDR-{m_key}: {avg_diff:.2f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
+            axs.set_title(f'BDR-{m_key}: {avg_diff:.1f}', fontdict={'fontsize': 28, 'fontweight': 'medium'}, pad=28)
             axs.axhline(min_int, linestyle='dashed', color='red')
             axs.axhline(max_int, linestyle='dashed', color='red')
             c = 'red' if avg_diff < 0 else 'green'
