@@ -347,9 +347,11 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
             axs.plot(R1, d1, 'o', color=c0)
             axs.plot(R2, d2, 'o', color=c1)
             axs.plot(p1, samples, '-', label=anchor_label, color=c0)
-            axs.plot(w1, samples2, ':')
+            if draw_extra_interpolation:
+                axs.plot(w1, samples2, ':')
             axs.plot(p2, samples, '-', label=test_label, color=c1)
-            axs.plot(w2, samples2, ':')
+            if draw_extra_interpolation:
+                axs.plot(w2, samples2, ':')
             axs.legend()
             axs.set_xlabel('Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
             axs.set_ylabel(m_key, fontsize=28, labelpad=28)
