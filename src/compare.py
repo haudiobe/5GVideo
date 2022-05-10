@@ -75,11 +75,11 @@ def rd_metrics(variants: List[VariantData], rate:Metric, dist:Metric) -> Iterabl
     return zip(*rd)
 
 
-def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], dist:Metric, rate=Metric.BITRATE, anchor_label="anchor", test_label="test", sanitize=True, log_rate_plot=False, draw_extra_interpolation=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def compare_anchors_metrics(anchor: List[VariantData], test: List[VariantData], dist:Metric, rate=Metric.BITRATE, anchor_label="anchor", test_label="test", sanitize=True, log_rate_plot=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     anchor_metrics = [*rd_metrics(anchor, rate=rate, dist=dist)]
     test_metrics = [*rd_metrics(test, rate=rate, dist=dist)]
     q_key = dist.csv_key.replace('_', ' ')
-    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=q_key, log_rate_plot=log_rate_plot, draw_extra_interpolation=draw_extra_interpolation)
+    return bd_rate_plot(*anchor_metrics, *test_metrics, sanitize=sanitize, anchor_label=anchor_label, test_label=test_label, quality_label=q_key, log_rate_plot=log_rate_plot)
 
 
 def compare_sequences(anchor: AnchorTuple, test: AnchorTuple, metrics: Iterable[Metric], save_plots=False, strict=False, **kwargs) -> Iterable[Tuple[str, VariantMetricSet]]:
@@ -263,7 +263,7 @@ def strictly_increasing(samples):
     return True
 
 
-def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="metric", bitrate_unit = "kbit/s", sanitize=False, log_rate_plot=False, draw_extra_interpolation=True) -> Tuple[Figure, int, Any, Any, Any, Any]:
+def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test", quality_label="metric", bitrate_unit = "kbit/s", sanitize=False, log_rate_plot=False) -> Tuple[Figure, int, Any, Any, Any, Any]:
     """adapted from https://github.com/Anserw/Bjontegaard_metric
     which computes bd-rate according to:
         [1] G. Bjontegaard, Calculation of average PSNR differences between RD-curves (VCEG-M33)
@@ -285,7 +285,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
     min_int = max(min(DIST1), min(DIST2))
     max_int = min(max(DIST1), max(DIST2))
 
-    samples, interval = np.linspace(min_int, max_int, num=100, retstep=True)
+    integration_range, interval = np.linspace(min_int, max_int, num=100, retstep=True)
     [r1, d1] = sort_on_rates(lR1, DIST1)
     assert strictly_increasing(d1), f'{anchor_label}: {quality_label} not strictly increasing: {d1}'
 
@@ -294,8 +294,8 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
 
     v1, v2, avg_diff, fig = None, None, 0, None
     try:
-        v1 = scipy.interpolate.pchip_interpolate(d1, r1, samples)
-        v2 = scipy.interpolate.pchip_interpolate(d2, r2, samples)
+        v1 = scipy.interpolate.pchip_interpolate(d1, r1, integration_range)
+        v2 = scipy.interpolate.pchip_interpolate(d2, r2, integration_range)
 
         int1 = np.trapz(v1, dx=interval)
         int2 = np.trapz(v2, dx=interval)
@@ -311,22 +311,20 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
         fig, axs = plt.subplots(1, nplots, figsize=(12, 12))
         
         m_key = format_metric_key(quality_label)
-        c0 = '#1f77b4'
-        c1 = '#ff7f0e'
-        dist_all = np.concatenate((DIST1, DIST2))
-        samples2 = np.linspace(np.amin(dist_all), np.amax(dist_all), num=100)
-        
+        c1 = '#1f77b4'
+        c2 = '#ff7f0e'
+        full_range = lambda dist: np.linspace(np.amin(dist), np.amax(dist), num=100)
+        full_range1 = full_range(DIST1)
+        full_range2 = full_range(DIST2)
         if log_rate_plot:
-            w1 = scipy.interpolate.pchip_interpolate(d1, r1, samples2)
-            w2 = scipy.interpolate.pchip_interpolate(d2, r2, samples2)
-            axs.plot(r1, d1, 'o', color=c0)
-            axs.plot(r2, d2, 'o', color=c1)
-            axs.plot(v1, samples, '-', label=anchor_label, color=c0)
-            if draw_extra_interpolation:
-                axs.plot(w1, samples2, ':', color=c0)
-            axs.plot(v2, samples, '-', label=test_label, color=c1)
-            if draw_extra_interpolation:
-                axs.plot(w2, samples2, ':', color=c1)
+            w1 = scipy.interpolate.pchip_interpolate(d1, r1, full_range1)
+            w2 = scipy.interpolate.pchip_interpolate(d2, r2, full_range2)
+            axs.plot(r1, d1, 'o', color=c1)
+            axs.plot(r2, d2, 'o', color=c2)
+            axs.plot(v1, integration_range, '-', label=anchor_label, color=c1)
+            axs.plot(w1, full_range1, ':', color=c1)
+            axs.plot(v2, integration_range, '-', label=test_label, color=c2)
+            axs.plot(w2, full_range2, ':', color=c2)
             axs.legend()
             axs.set_xlabel('log$_{e}$ Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
             axs.set_ylabel(m_key, fontsize=28, labelpad=28)
@@ -336,22 +334,20 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
             axs.axhline(min_int, linestyle='dashed', color='red')
             axs.axhline(max_int, linestyle='dashed', color='red')
             c = 'red' if avg_diff < 0 else 'green'
-            axs.fill_betweenx(samples, v1, v2, color=c, alpha=0.25)
+            axs.fill_betweenx(integration_range, v1, v2, color=c, alpha=0.25)
 
         else:
-            p1 = scipy.interpolate.pchip_interpolate(DIST1, R1, samples)
-            p2 = scipy.interpolate.pchip_interpolate(DIST2, R2, samples)
-            w1 = scipy.interpolate.pchip_interpolate(DIST1, R1, samples2)
-            w2 = scipy.interpolate.pchip_interpolate(DIST2, R2, samples2)
+            p1 = scipy.interpolate.pchip_interpolate(DIST1, R1, integration_range)
+            p2 = scipy.interpolate.pchip_interpolate(DIST2, R2, integration_range)
+            w1 = scipy.interpolate.pchip_interpolate(DIST1, R1, full_range1)
+            w2 = scipy.interpolate.pchip_interpolate(DIST2, R2, full_range2)
 
-            axs.plot(R1, d1, 'o', color=c0)
-            axs.plot(R2, d2, 'o', color=c1)
-            axs.plot(p1, samples, '-', label=anchor_label, color=c0)
-            if draw_extra_interpolation:
-                axs.plot(w1, samples2, ':')
-            axs.plot(p2, samples, '-', label=test_label, color=c1)
-            if draw_extra_interpolation:
-                axs.plot(w2, samples2, ':')
+            axs.plot(R1, d1, 'o', color=c1)
+            axs.plot(R2, d2, 'o', color=c2)
+            axs.plot(p1, integration_range, '-', label=anchor_label, color=c1)
+            axs.plot(w1, full_range1, ':', color=c1)
+            axs.plot(p2, integration_range, '-', label=test_label, color=c2)
+            axs.plot(w2, full_range2, ':', color=c2)
             axs.legend()
             axs.set_xlabel('Bitrate ' + bitrate_unit, fontsize=28, labelpad=28)
             axs.set_ylabel(m_key, fontsize=28, labelpad=28)
@@ -361,7 +357,7 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
             axs.axhline(min_int, linestyle='dashed', color='red')
             axs.axhline(max_int, linestyle='dashed', color='red')
             c = 'red' if avg_diff < 0 else 'green'
-            axs.fill_betweenx(samples, p1, p2, color=c, alpha=0.25)
+            axs.fill_betweenx(integration_range, p1, p2, color=c, alpha=0.25)
 
 
     except ValueError as ve:
@@ -382,15 +378,13 @@ def bd_rate_plot(R1, DIST1, R2, DIST2, anchor_label="anchor", test_label="test",
 @click.option('--working-dir', envvar='VCC_WORKING_DIR', required=True,
     type=click.Path(exists=True, dir_okay=True, file_okay=False, writable=True, readable=True),
     help="directory containing bitstreams and pre-computed metrics, can be set with VCC_WORKING_DIR environment variable." )
-
-@click.option('-e', '--draw-extra-interpolation', required=False, default=False, is_flag=True, help="draw rd curve in log rate domain.")
 @click.option('-l', '--log-rate-plot', required=False, default=False, is_flag=True, help="draw rd curve in log rate domain.")
 @click.option('-p', '--plot', required=False, default=False, is_flag=True, help="enable rd curve & bd rate plots when comparing encoder configs.")
 @click.option('-s/-c', required=True, default=True, help="specifies if anchor/test are: sequence IDs or encoder configs IDs")
 @click.argument('anchor_key', required=True)
 @click.argument('test_key', required=True)
 @click.argument('metric_keys', nargs=-1, required=False)
-def main(working_dir:str, draw_extra_interpolation:bool, log_rate_plot:bool, plot:bool, s:bool, anchor_key:str, test_key:str, metric_keys:Tuple[str]):
+def main(working_dir:str, log_rate_plot:bool, plot:bool, s:bool, anchor_key:str, test_key:str, metric_keys:Tuple[str]):
     """
     The script expects data to follow data organization as found in: https://dash-large-files.akamaized.net/WAVE/3GPP/5GVideo/
     \b
@@ -446,7 +440,7 @@ def main(working_dir:str, draw_extra_interpolation:bool, log_rate_plot:bool, plo
         test = AnchorTuple.load(test_key, bitstreams_dir, sequences_dir)
         if len(metrics) == 0:
             metrics = [m for m in anchor.get_metrics_set() if m not in METRIC_BLACKLIST]
-        _ = compare_sequences(anchor, test, metrics, save_plots=True, log_rate_plot=log_rate_plot, draw_extra_interpolation=draw_extra_interpolation)
+        _ = compare_sequences(anchor, test, metrics, save_plots=True, log_rate_plot=log_rate_plot)
 
     else:
         anchors = AnchorTuple.iter_cfg_anchors(anchor_key, bitstreams_dir, sequences_dir)
@@ -455,7 +449,7 @@ def main(working_dir:str, draw_extra_interpolation:bool, log_rate_plot:bool, plo
         data = []
         if len(metrics) == 0:
             metrics = [m for m in t.get_metrics_set() if m not in METRIC_BLACKLIST]
-        for (seqid, r) in compare_anchors(anchors, tests, metrics, save_plots=True, log_rate_plot=log_rate_plot, draw_extra_interpolation=draw_extra_interpolation):
+        for (seqid, r) in compare_anchors(anchors, tests, metrics, save_plots=True, log_rate_plot=log_rate_plot):
             r['reference'] = seqid
             data.append(r)
         outp = t.working_dir.parent  / 'Characterization' / f'{anchor_key}.{test_key}.csv'.lower()
