@@ -98,7 +98,7 @@ def hdrtools_input(v: VideoSequence, ref=True, file_header=0):
         '-p', f'Input{i}BitDepthCmp2={v.bit_depth}',
         '-p', f'Input{i}StartFrame={v.start_frame-1}',
         '-p', f'Input{i}FileHeader={file_header}',
-        '-p', f'Input{i}Rate={v.frame_rate}',
+        '-p', f'Input{i}Rate={round(v.frame_rate)}',
         '-p', f'Input{i}SampleRange={v.video_full_range}',  # 0: Standard/Video range, 1: Full range
         # '-p', f'Input{i}FourCCCode={0}'  # PF_UYVY is HDRMetrics' default, specifies custom pixel formats, mostly for interleaved and custom component ordering (eg. BGR instead of RGB)
     ]
