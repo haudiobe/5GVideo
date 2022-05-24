@@ -221,11 +221,14 @@ def compute_sdr_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     elif conv[0] == Conversion.HDRCONVERT_10TO8BIT:
         # ref is 10 bit, encoded on 8bit 
         pass
-    assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+
+    if not dry_run:
+        assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
 
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
-        assert dist.path.exists(), f'pre-processing step needed -- Not found: {dist.path}'
+        if not dry_run:
+            assert dist.path.exists(), f'pre-processing step needed -- Not found: {dist.path}'
     assert ref.bit_depth == dist.bit_depth
     
     log = dist.path.with_suffix('.metrics.log')
@@ -286,11 +289,13 @@ def compute_vmaf_metrics(a: AnchorTuple, vd: VariantData, dry_run=False):
     elif conv[0] == Conversion.HDRCONVERT_10TO8BIT:
         # ref is 10 bit, encoded on 8bit 
         pass
-    assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
+    if not dry_run:
+        assert ref.path.exists(), f'reference sequence needs pre-processing - Not found: {ref.path}'
     
     if conv[1] == Conversion.HDRCONVERT_8TO10BIT:
         dist = as_10bit_sequence(dist)
-        assert dist.path.exists(), f'pre-processing step needed - Not found: {dist.path}'
+        if not dry_run:
+            assert dist.path.exists(), f'pre-processing step needed - Not found: {dist.path}'
     assert ref.bit_depth == dist.bit_depth
 
     vmaf_model = os.getenv('VMAF_MODEL', "version=vmaf_v0.6.1")
@@ -329,7 +334,7 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
     enc = get_encoder(vd.generation['encoder'])
     bitstream = Path(vd.bitstream['URI']) if Path(vd.bitstream['URI']).exists() else  a.working_dir / Path(vd.bitstream['URI']).name
 
-    s = enc.bitstream_size(bitstream)
+    s = enc.bitstream_size(bitstream, cleanup=False, efs=True)
     metrics[Metric.BITRATE] = int(s * 8 / a.duration) * 1e-3
     
     # parse additional metrics from ENCODER log 
@@ -363,12 +368,12 @@ def compute_metrics(a: AnchorTuple, vd: VariantData, digits=3, dry_run=False) ->
     return metrics
 
 
-def compute_bitrate(a: AnchorTuple, vd: VariantData, digits=3) -> float:
+def compute_bitrate(a: AnchorTuple, vd: VariantData, efs=True, cleanup=False) -> float:
     if not a.reference.path.exists():
         raise FileNotFoundError(a.reference.path)
     enc = get_encoder(vd.generation['encoder'])
     bitstream = Path(vd.bitstream['URI']) if Path(vd.bitstream['URI']).exists() else  a.working_dir / Path(vd.bitstream['URI']).name
-    s = enc.bitstream_size(bitstream)
+    s = enc.bitstream_size(bitstream, cleanup=cleanup, efs=efs)
     a.frame_count / a.reference.frame_rate
     return int(s * 8 / a.duration) * 1e-3
 
@@ -376,13 +381,18 @@ def compute_bitrate(a: AnchorTuple, vd: VariantData, digits=3) -> float:
 def anchor_metrics_csv_rows(a: AnchorTuple) -> List[Dict[str, Any]]:
     rows = []
     for qp, vd in load_variants(a):
-        r = {} 
+        r = {
+            'bitstream_md5': vd.bitstream["md5"],
+            'recon_md5': vd.reconstruction["md5"]
+        }
         r['parameter'] = qp
         if vd.metrics is None:
             logging.error(f'metrics not set on {vd.variant_id}')
         else:
+            m = a.get_metrics_set()
             for k, v in vd.metrics.items():
-                r[k.csv_key] = v
+                if k in m:
+                    r[k.csv_key] = v
         rows.append(r)
     return rows
 
@@ -393,7 +403,7 @@ def anchor_metrics_to_csv(a: AnchorTuple, save = False, dst: Path = None):
     if not save:
         return rows
 
-    fieldnames = ['parameter'] + [m.csv_key for m in a.get_metrics_set()]
+    fieldnames = ['sequence', 'parameter', ] + [m.csv_key for m in a.get_metrics_set()] + ['bitstream_md5', 'recon_md5']
 
     if dst is None:
         dst = a.working_dir.parent / 'Metrics' / f'{a.working_dir.stem}.csv'
@@ -408,7 +418,7 @@ def anchor_metrics_to_csv(a: AnchorTuple, save = False, dst: Path = None):
     return rows
 
 
-def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
+def anchor_metrics_from_csv(csv_path: Path) -> dict:
     r = {}
     with open(csv_path, 'r', encoding = ENCODING ) as fo:
         csv_reader = csv.DictReader(fo)
@@ -419,6 +429,12 @@ def anchor_metrics_from_csv(csv_path: Path) -> Dict[Metric, Any]:
             for k, v in row.items():
                 if k == 'parameter':
                     qp = v
+                elif k == "sequence":
+                    pass
+                elif k == "bitstream_md5":
+                    pass
+                elif k == "recon_md5":
+                    pass
                 else:
                     m = Metric.from_csv_key(k)
                     if m is None:
@@ -437,7 +453,14 @@ def load_csv_metrics(a:AnchorTuple, streams:List[VariantData]):
     a_csv = a.working_dir.parent / 'Metrics' / (a.working_dir.with_suffix('.csv')).name
     metrics = anchor_metrics_from_csv(a_csv)
     for vd in streams:
-        vd.metrics = metrics[vd.variant_qp]
+        m = metrics[vd.variant_qp]
+        if "bitstream_md5" in m:
+            vd.bitstream["md5"] = m["bitstream_md5"]
+            del m["bitstream_md5"]
+        elif "recon_md5" in m:
+            vd.reconstruction["md5"] = m["recon_md5"]
+            del m["recon_md5"]
+        vd.metrics = m
 
 
 @click.group()
@@ -493,7 +516,7 @@ def csv_metrics(ctx):
     
     key = ctx.obj['anchor_key']
     dst = ctx.obj['anchors'][0].working_dir.parent / 'Metrics' / f'{key}.csv'
-    fieldnames = ['sequence', 'parameter'] + [m.csv_key for m in metrics]
+    fieldnames = ['sequence', 'parameter'] + [m.csv_key for m in metrics] + ['bitstream_md5', 'recon_md5']
 
     with open(dst, 'w', newline='') as fo:
         writer = csv.DictWriter(fo, fieldnames=fieldnames)
@@ -510,6 +533,8 @@ def __verify_metrics(a:AnchorTuple, orig_dir:Path, metric_keys:Tuple[str], row_t
     v_orig = load_variants(a, orig_dir / a.anchor_key)
     
     for ((_, vd), (__, vd_orig)) in zip(v, v_orig):
+
+        assert vd.reconstruction is not None, "verification impossible, missing reconstruction"
 
         info_reconstruction = [("md5", vd.reconstruction["md5"])]
         orig_info_reconstruction = [("md5", vd_orig.reconstruction["md5"])]
