@@ -114,6 +114,7 @@ class VideoSequence(VideoInfo):
         self.contact = contact
         self.copyright = copyright
         self.sequence = sequence
+        self.sidecar_metadata = None
         super().__init__(**properties)
 
     @property
@@ -177,7 +178,7 @@ class VideoSequence(VideoInfo):
         if not local_file.exists():
             logger.debug(f"VideoSequence file not found: {local_file}")
         if 'md5' not in data['Sequence']:
-            print(f"/!\\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}")
+            logger.debug(f"/!\\ {metadata}\n'md5' key missing from 'Sequence' metadata: {uri.name}")
         data['Sequence']['Key'] = None  # The sequence key in the json files should not be used. If it exists, it may be invalid. Key is defined in the csv list.
         contact = None
         cc = None
@@ -187,7 +188,9 @@ class VideoSequence(VideoInfo):
         contact = data.get('Contact', None)
         cc = data.get('copyRight', None)
 
-        return VideoSequence(local_file, copyright=cc, contact=contact, sequence=data['Sequence'], **props)
+        vs = VideoSequence(local_file, copyright=cc, contact=contact, sequence=data['Sequence'], **props)
+        vs.sidecar_metadata = metadata
+        return vs
 
 # return a modified VideoSequence obj pointing to a converted sequence
 

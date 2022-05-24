@@ -182,7 +182,7 @@ class EncoderBase(ABC):
         if tool is None:
             return None, None
         if bitstream_out is None:
-            bitstream_out = bitstream_in.with_suffix('.seirm.bin')
+            bitstream_out = bitstream_in.with_suffix('.bis')
         cmd = [tool, '-b', str(bitstream_in), '-o', str(bitstream_out), '--DiscardPrefixSEI=1', '--DiscardSuffixSEI=1']
         log = bitstream_out.with_suffix('.log')
         run_process(log, *cmd, dry_run=False)
@@ -190,14 +190,17 @@ class EncoderBase(ABC):
 
 
     @classmethod
-    def bitstream_size(cls, bitstream: Path) -> int:
-        tmp, log = cls.remove_sei(bitstream)
+    def bitstream_size(cls, bitstream: Path, cleanup=True, efs=True) -> int:
+        tmp=None
+        if efs:
+            tmp, log = cls.remove_sei(bitstream)
         if tmp is None:
             s = int(os.path.getsize(bitstream))
         else:
             s = int(os.path.getsize(tmp))
-            os.remove(tmp)
-            os.remove(log)
+            if cleanup:
+                os.remove(tmp)
+                os.remove(log)
         return s
 
 

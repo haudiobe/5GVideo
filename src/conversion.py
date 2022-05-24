@@ -16,7 +16,9 @@ class Conversion(Enum):
 
 
 def get_anchor_conversion_type(a:AnchorTuple) -> Tuple[Conversion, Conversion]:
-    assert a.reference.transfer_characteristics is not None
+    if a.reference.transfer_characteristics is None:
+        raise Exception('can not define conversion for sequence with invalid metadata')
+        
     if a.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
         return (Conversion.HDRCONVERT_YCBR420TOEXR2020, Conversion.HDRCONVERT_YCBR420TOEXR2020)
 

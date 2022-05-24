@@ -1,4 +1,3 @@
-from ast import Return
 from asyncio.log import logger
 import json
 import csv
@@ -28,7 +27,7 @@ class ReconstructionMeta:
             "log-file": self.decoder_log.name if hasattr(self.decoder_log, 'decoder_log') else None,
             "md5": self.reconstructed_md5
         }
-    
+
     def update(self, vp:Path, vd:'VariantData'):
         for k, v in self.to_dict().items():
             vd.reconstruction[k] = v
@@ -471,9 +470,8 @@ class AnchorTuple:
 
     def get_metrics_set(self):
         if self.reference.transfer_characteristics is None:
-            logging.debug('reference sequence metadata not loaded, could not define metrics set.')
-            return SDR_METRICS + HDR_METRICS
-        elif self.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
+            raise Exception('can not get metrics for sequence with invalid metadata')
+        if self.reference.transfer_characteristics == TransferFunction.BT2020_PQ:
             return HDR_METRICS
         else:
             return SDR_METRICS
@@ -518,7 +516,7 @@ def reference_sequences_dict(reference_list: Path, ref_sequences_dir: Path, rais
 
 
 
-def iter_anchors(streams_csv: Path, streams_dir: Path = None, sequences: Dict[str, VideoSequence] = None, cfg_dir=None, keys: List[str] = None, cfg_keys: Iterable[str] = None) -> Iterable[AnchorTuple]:
+def iter_anchors(streams_csv: Path, streams_dir: Path = None, sequences: Dict[str, VideoSequence] = None, cfg_dir=None, keys: Iterable[str] = None, cfg_keys: Iterable[str] = None) -> Iterable[AnchorTuple]:
     
     anchors = []
 

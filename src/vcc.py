@@ -242,7 +242,7 @@ def convert(ctx, reconstructions):
             if not queue:
                 convert_sequence(conv[0], a.reference, dry_run=dry_run)
             else:
-                convert_sequence_task.delay(conv[0].value, str(a.reference.path.with_suffix('.json')), dry_run=dry_run)
+                convert_sequence_task.delay(conv[0].value, str(a.reference.sidecar_metadata), dry_run=dry_run)
 
 
 
@@ -281,8 +281,6 @@ def metrics(ctx):
 def bitrate(ctx):
 
     variant_id = ctx.obj['variant_id']
-    # dry_run = ctx.obj['dry_run']
-    # if ctx.obj['queue']
 
     for a in ctx.obj['anchors']:
         match_found = variant_id is None
@@ -294,12 +292,10 @@ def bitrate(ctx):
             vfp = a.working_dir / f'{vd.variant_id}.json'
             match_found = True
             try:
-                vd.metrics[Metric.BITRATE] = compute_bitrate(a, vd)
+                vd.metrics[Metric.BITRATE] = compute_bitrate(a, vd, efs=True, cleanup=False)
                 vd.save_as(vfp)
             except BaseException as e:
-                logging.error('='*32)
-                logging.error(vd.variant_id)
-                logging.error('='*32)
+                logging.error(e)
         assert match_found, f'{variant_id} not found'
 
 
