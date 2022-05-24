@@ -76,19 +76,19 @@ class Metric(enum.Enum):
 
     @classmethod
     def from_json_key(cls, key:str):
+        if "WTPSNR" in key:
+            key = key.replace("WTPSNR", "WPSNR")
         for m in cls.__members__.values():
             if m.json_key == key:
                 return m
-            if key == 'WTPSNR':
-                return cls.WTPSNR
 
     @classmethod
     def from_csv_key(cls, key:str):
+        if "wtpsnr" in key:
+            key = key.replace("wtpsnr", "wpsnr")
         for m in cls.__members__.values():
             if m.csv_key == key:
                 return m
-            if key == 'wtpsnr':
-                return cls.WTPSNR
 
     @property
     def csv_key(self):
