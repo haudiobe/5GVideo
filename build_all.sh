@@ -27,5 +27,12 @@ if [ "$#" -ne 1 ] || [ "$1" = "ETM" ]; then
     docker build $opts -t vcc:etm -f ./docker/Dockerfile.ETM ./docker
 fi
 
-# build Dockerfile.queue & Dockerfile.worker
+if [ "$#" -ne 1 ] || [ "$1" = "AOM" ]; then
+    docker build $opts -t vcc:aom -f ./docker/Dockerfile.AOM ./docker
+fi
+
+if [ "$#" -ne 1 ] || [ "$1" = "worker" ]; then
+    docker build $opts -t vcc:worker -f ./docker/Dockerfile.worker ./
+fi
+
 docker-compose build

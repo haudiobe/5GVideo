@@ -29,10 +29,10 @@ services:
       - CELERY_BROKER_URL=redis://queue:6379/0
       - CELERY_RESULT_BACKEND=redis://queue:6379/1
 
-    command: [ "python3", "-m", "celery", "-A", "vcc", "worker", "--loglevel=info", "--concurrency=2", "-n", "worker@%h"]
-    # command: [ "/bin/sh", "-c", "pip install debugpy -t /tmp && python3 /tmp/debugpy --listen 0.0.0.0:6900 -m celery -A vcc worker --loglevel=info --concurrency=2 -n worker@%h"]
-    # ports:
-    #  - 6900:6900
+    # command: [ "python3", "-m", "celery", "-A", "vcc", "worker", "--loglevel=info", "--concurrency=2", "-n", "worker@%h"]
+    command: [ "/bin/sh", "-c", "pip install debugpy -t /tmp && python3 /tmp/debugpy --listen 0.0.0.0:6900 -m celery -A vcc worker --loglevel=info --concurrency=2 -n worker@%h"]
+    ports:
+     - 6900:6900
         
   status:
     build:

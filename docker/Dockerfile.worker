@@ -26,29 +26,36 @@ ENV JM19_0_DECODER=/home/deps/JM/bin/ldecod_static
 # VTM
 COPY --from=vcc:vtm /home/deps/VTM13.0/bin /home/deps/VTM13.0/bin
 ENV VTM13_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
-ENV VTM13_0_DECODER=/home/deps/VTM13.0/bin/
+ENV VTM13_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
 
 COPY --from=vcc:vtm /home/deps/VTM11.0/bin /home/deps/VTM11.0/bin
 ENV VTM11_0_ENCODER=/home/deps/VTM11.0/bin/EncoderAppStatic
 ENV VTM11_0_DECODER=/home/deps/VTM11.0/bin/DecoderAppStatic
 
-ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM13.0/bin/SEIRemovalAppStatic
+# default use 13.0.0 
+ENV VTM_0_ENCODER=/home/deps/VTM13.0/bin/EncoderAppStatic
+ENV VTM_0_DECODER=/home/deps/VTM13.0/bin/DecoderAppStatic
 
+ENV VTM_SEI_REMOVAL_APP=/home/deps/VTM13.0/bin/SEIRemovalAppStatic
 
 # ETM
 COPY --from=vcc:etm /home/deps/ETM7.5/bin /home/deps/ETM7.5/bin
 ENV ETM7_5_ENCODER=/home/deps/ETM7.5/bin/evca_encoder
 ENV ETM7_5_DECODER=/home/deps/ETM7.5/bin/evca_decoder
 
+# AOM
+COPY --from=vcc:aom /home/deps/aom/build /home/deps/AOM/bin
+ENV AOM_ENCODER=/home/deps/AOM3.3/bin/
+ENV AOM_DECODER=/home/deps/AOM3.3/bin/
+
 # scripts
 WORKDIR /home/5GVideo
 COPY ./src/requirements.txt ./
 RUN python3 -m pip install -r ./requirements.txt
 
-# COPY ./src/stack.requirements.txt ./
-# RUN python3 -m pip install -r ./stack.requirements.txt
-
 COPY ./src/*.py ./
 COPY ./docker/cfg/HDRTools /home/cfg
 
-CMD ["celery", "-A", "vcc", "worker", "--loglevel=info", "--concurrency=2", "-n", "worker@%h"]
+ENV VCC_WORKING_DIR /data
+ENTRYPOINT ["python3"]
+CMD ["vcc.py"]
